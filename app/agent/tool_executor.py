@@ -118,12 +118,19 @@ def _handle_get_list(tool_input: dict, user_id: int, db: Session):
 def _handle_send_list(tool_input: dict, user_id: int, db: Session):
     """Transition ACTIVE → SENT and send formatted list SMS to shopper."""
     shopper_phone = tool_input.get("shopper_phone", "")
+
+    # Fetch list data BEFORE the status transition to ensure we format the correct list
+    list_data = list_service.get_list(db)
+
+    # Guard: refuse to send a blank SMS
+    if not list_data.get("items_by_category"):
+        return {"error": "No items on the list to send."}
+
     updated_list = list_service.send_list(db)
 
     # Build a simple formatted list message
-    list_data = list_service.get_list(db)
     lines = ["Shopping list:"]
-    for category, items in list_data.get("items_by_category", {}).items():
+    for category, items in list_data["items_by_category"].items():
         lines.append(f"\n{category}:")
         for item in items:
             qty = f"{item['quantity']} {item['unit']} " if item.get("quantity") else ""

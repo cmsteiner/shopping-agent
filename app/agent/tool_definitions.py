@@ -200,7 +200,7 @@ TOOLS: list[dict] = [
                 },
                 "status": {
                     "type": "string",
-                    "enum": ["ACTIVE", "SENT", "ARCHIVED"],
+                    "enum": ["SENT", "ARCHIVED"],
                     "description": "Target status.",
                 },
             },

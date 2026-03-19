@@ -1,5 +1,5 @@
 """Item service — create and manage shopping list items."""
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -100,7 +100,7 @@ def hold_pending(
     db.flush()  # get pending_item.id
 
     # Expires in 24 hours by convention
-    expires_at = datetime(9999, 12, 31, tzinfo=timezone.utc)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     confirmation = PendingConfirmation(
         item_id=pending_item.id,
         existing_item_id=existing_item_id,
