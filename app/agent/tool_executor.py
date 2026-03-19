@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 from app.services import item_service, sms_service
 from app.services import duplicate_service, list_service, brand_service
+from app.utils.formatting import format_list, split_sms
 
 
 # ---------------------------------------------------------------------------
@@ -132,18 +133,13 @@ def _handle_send_list(tool_input: dict, user_id: int, db: Session):
 
     updated_list = list_service.send_list(db)
 
-    # Build a simple formatted list message
-    lines = ["Shopping list:"]
-    for category, items in list_data["items_by_category"].items():
-        lines.append(f"\n{category}:")
-        for item in items:
-            qty = f"{item['quantity']} {item['unit']} " if item.get("quantity") else ""
-            brand = f"({item['brand_pref']}) " if item.get("brand_pref") else ""
-            lines.append(f"  - {qty}{brand}{item['name']}")
+    # Format the list into SMS text and split into chunks if necessary
+    formatted = format_list(list_data)
+    chunks = split_sms(formatted)
 
-    message = "\n".join(lines)
     if shopper_phone:
-        sms_service.send_sms(shopper_phone, message)
+        for chunk in chunks:
+            sms_service.send_sms(shopper_phone, chunk)
 
     return {
         "status": "sent",

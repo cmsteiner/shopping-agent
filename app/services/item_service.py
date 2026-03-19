@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import Item, ShoppingList, PendingConfirmation
 from app.models.item import ItemStatus
 from app.models.shopping_list import ListStatus
+from app.services import brand_service
 
 
 def _get_or_create_active_list(db: Session) -> ShoppingList:
@@ -40,12 +41,20 @@ def add_items(
 
     created = []
     for item_data in items:
+        # Use explicit brand if provided; otherwise look up stored preference.
+        explicit_brand = item_data.get("brand_hint") or item_data.get("brand_pref")
+        if not explicit_brand:
+            pref = brand_service.get_brand_preference(item_data["name"], db)
+            auto_brand = pref.brand if pref is not None else None
+        else:
+            auto_brand = None
+
         item = Item(
             list_id=list_id,
             name=item_data["name"],
             quantity=item_data.get("quantity"),
             unit=item_data.get("unit"),
-            brand_pref=item_data.get("brand_hint") or item_data.get("brand_pref"),
+            brand_pref=explicit_brand or auto_brand,
             category=item_data.get("category"),
             status=ItemStatus.ACTIVE,
             added_by=user_id,
