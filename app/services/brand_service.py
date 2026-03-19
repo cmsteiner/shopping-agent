@@ -14,7 +14,7 @@ def get_brand_preference(item_name: str, db: Session) -> BrandPreference | None:
     """Return the stored BrandPreference for item_name, or None."""
     return (
         db.query(BrandPreference)
-        .filter(BrandPreference.item_name == item_name)
+        .filter(BrandPreference.item_name == item_name.lower())
         .first()
     )
 
@@ -43,6 +43,7 @@ def save_brand_preference(
     BrandPreference
         The created or updated record.
     """
+    item_name = item_name.lower()  # normalize before lookup/store
     pref = get_brand_preference(item_name, db)
     if pref is not None:
         pref.brand = brand

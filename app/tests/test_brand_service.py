@@ -65,3 +65,25 @@ class TestSaveBrandPreference:
         # Confirm only one record exists (no duplicate created)
         count = db.query(BrandPreference).filter(BrandPreference.item_name == "cheese").count()
         assert count == 1
+
+    def test_case_insensitive_save_and_lookup(self, db: Session):
+        """Saving with mixed case and looking up with different case returns the same preference."""
+        from app.services.brand_service import get_brand_preference, save_brand_preference
+
+        # Save with title-case item name
+        save_brand_preference(item_name="Milk", brand="Organic Valley", user_id=1, db=db)
+
+        # Look up with lowercase — should find the same record
+        result = get_brand_preference("milk", db)
+        assert result is not None
+        assert result.item_name == "milk"
+        assert result.brand == "Organic Valley"
+
+        # Look up with uppercase — should also find it
+        result_upper = get_brand_preference("MILK", db)
+        assert result_upper is not None
+        assert result_upper.brand == "Organic Valley"
+
+        # Confirm only one record was created (no duplicates from different cases)
+        count = db.query(BrandPreference).filter(BrandPreference.item_name == "milk").count()
+        assert count == 1

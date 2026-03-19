@@ -44,7 +44,7 @@ def add_items(
         # Use explicit brand if provided; otherwise look up stored preference.
         explicit_brand = item_data.get("brand_hint") or item_data.get("brand_pref")
         if not explicit_brand:
-            pref = brand_service.get_brand_preference(item_data["name"], db)
+            pref = brand_service.get_brand_preference(item_data["name"].lower(), db)
             auto_brand = pref.brand if pref is not None else None
         else:
             auto_brand = None

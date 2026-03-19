@@ -4,11 +4,19 @@ SMS formatting utilities.
 Provides format_list and split_sms for turning a list_data dict into
 one or more SMS-sized text chunks.
 """
+import logging
 from datetime import date
 
 from app.utils.category import CANONICAL_CATEGORIES, normalize_category
 
+logger = logging.getLogger(__name__)
+
 FOOTER = "* = pending confirmation\nReply DONE when finished."
+
+# Safety buffer (chars) added on top of known content length when estimating
+# whether a segment fits within max_chars.  Accounts for minor prefix-length
+# variance (e.g. "(1/9)\n" vs "(12/99)\n").
+_CHUNK_SIZE_BUFFER = 10
 
 
 def _category_sort_key(category: str) -> int:
@@ -169,7 +177,7 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
 
         for item_line in item_lines:
             candidate = "\n".join([current_header] + current_items + [item_line])
-            estimated = placeholder_prefix_len + len(candidate) + 10
+            estimated = placeholder_prefix_len + len(candidate) + _CHUNK_SIZE_BUFFER
             if estimated <= max_chars:
                 current_items.append(item_line)
             else:
@@ -180,6 +188,17 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
                 current_header = header_line
                 current_items = [item_line]
 
+                # If even a single item line exceeds max_chars, we cannot split further.
+                # This is theoretically impossible with real grocery data at 1500 chars
+                # but we emit it as-is rather than silently truncating.
+                item_chunk = "\n".join([current_header] + current_items)
+                if placeholder_prefix_len + len(item_chunk) + _CHUNK_SIZE_BUFFER > max_chars:
+                    logger.warning(
+                        "Single item line exceeds max_chars=%d: %d chars",
+                        max_chars,
+                        len(item_chunk),
+                    )
+
         if current_items or not sub_segments:
             sub_segments.append("\n".join([current_header] + current_items))
 
@@ -189,15 +208,26 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
         # Greedy packing: estimate chunk sizes using a fixed prefix-length
         # placeholder ("(99/99)\n" = 8 chars). Correct prefixes are added in
         # the second pass once the total chunk count is known.
+        #
+        # IMPORTANT: do NOT include footer length when estimating whether a
+        # non-last chunk is full.  The footer only appears on the final chunk,
+        # so including it in every estimate causes non-last chunks to be
+        # artificially undersized (the date-header line ends up stranded alone
+        # in its own chunk).  We only need the footer length when checking
+        # whether a segment fits as the *last* chunk (the oversized-alone
+        # check), and even there we conservatively include it to be safe.
         placeholder_prefix_len = 8
+        # Capacity available for content in a non-last chunk (no footer).
+        chunk_capacity = max_chars - placeholder_prefix_len - _CHUNK_SIZE_BUFFER
 
         chunks_content: list[str] = []
         current_parts: list[str] = []
 
         for seg in segments:
-            # Check if this segment alone exceeds max_chars; if so, split at
+            # Check if this segment alone exceeds max_chars even as the last
+            # chunk (worst case: it carries the footer too); if so, split at
             # item boundaries before attempting to pack it.
-            estimated_alone = placeholder_prefix_len + len(seg) + len("\n\n" + footer) + 10
+            estimated_alone = placeholder_prefix_len + len(seg) + len("\n\n" + footer) + _CHUNK_SIZE_BUFFER
             if estimated_alone > max_chars:
                 # Flush whatever we have accumulated first
                 if current_parts:
@@ -213,9 +243,10 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
                 current_parts = [seg]
             else:
                 joined = "\n\n".join(current_parts + [seg])
-                # Estimate: prefix + joined + footer (for last chunk)
-                estimated = placeholder_prefix_len + len(joined) + len("\n\n" + footer) + 10
-                if estimated <= max_chars:
+                # Estimate without footer: this is a non-last-chunk estimate.
+                # Footer is excluded so we don't artificially limit packing.
+                estimated = len(joined)
+                if estimated <= chunk_capacity:
                     current_parts.append(seg)
                 else:
                     chunks_content.append("\n\n".join(current_parts))
