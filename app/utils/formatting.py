@@ -149,6 +149,42 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
     # The footer is appended only to the last chunk.
     # We estimate prefix length as "(99/99)\n" = 8 chars; we'll verify after.
 
+    def _split_oversized_segment(seg: str, max_chars: int, placeholder_prefix_len: int) -> list[str]:
+        """
+        Split a segment that is too large to fit in a single chunk even on its own.
+
+        The segment is expected to start with a category header line followed by
+        item lines.  We split at item boundaries, repeating the category header
+        at the top of each continuation sub-segment so the reader always knows
+        which category they are looking at.
+        """
+        lines = seg.split("\n")
+        # The first line is the category header (e.g. "DAIRY")
+        header_line = lines[0] if lines else ""
+        item_lines = lines[1:]  # all lines after the header
+
+        sub_segments: list[str] = []
+        current_header = header_line
+        current_items: list[str] = []
+
+        for item_line in item_lines:
+            candidate = "\n".join([current_header] + current_items + [item_line])
+            estimated = placeholder_prefix_len + len(candidate) + 10
+            if estimated <= max_chars:
+                current_items.append(item_line)
+            else:
+                # Flush current accumulation as a sub-segment
+                if current_items:
+                    sub_segments.append("\n".join([current_header] + current_items))
+                # Start fresh continuation with repeated header
+                current_header = header_line
+                current_items = [item_line]
+
+        if current_items or not sub_segments:
+            sub_segments.append("\n".join([current_header] + current_items))
+
+        return sub_segments
+
     def _build_chunks(segments: list[str], footer: str, max_chars: int) -> list[str]:
         # Greedy packing: estimate chunk sizes using a fixed prefix-length
         # placeholder ("(99/99)\n" = 8 chars). Correct prefixes are added in
@@ -159,6 +195,20 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
         current_parts: list[str] = []
 
         for seg in segments:
+            # Check if this segment alone exceeds max_chars; if so, split at
+            # item boundaries before attempting to pack it.
+            estimated_alone = placeholder_prefix_len + len(seg) + len("\n\n" + footer) + 10
+            if estimated_alone > max_chars:
+                # Flush whatever we have accumulated first
+                if current_parts:
+                    chunks_content.append("\n\n".join(current_parts))
+                    current_parts = []
+                # Split the oversized segment into item-boundary sub-segments
+                sub_segs = _split_oversized_segment(seg, max_chars, placeholder_prefix_len)
+                for sub_seg in sub_segs:
+                    chunks_content.append(sub_seg)
+                continue
+
             if not current_parts:
                 current_parts = [seg]
             else:
@@ -183,13 +233,9 @@ def split_sms(text: str, max_chars: int = 1500) -> list[str]:
                 chunk = prefix + content + "\n\n" + footer
             else:
                 chunk = prefix + content
-            # If this chunk still exceeds max_chars, we can't split further
-            # (no more category boundaries), just include it as-is.
             result.append(chunk)
 
         return result
 
     chunks = _build_chunks(segments, footer, max_chars)
-
-    # Verify all chunks fit; if not, return them anyway (can't split mid-category)
     return chunks

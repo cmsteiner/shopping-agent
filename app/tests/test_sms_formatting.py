@@ -221,6 +221,27 @@ class TestSplitSms:
         for chunk in result:
             assert len(chunk) <= max_chars, f"Chunk too long ({len(chunk)} > {max_chars}): {chunk!r}"
 
+    def test_oversized_category_block_splits_at_item_boundaries(self):
+        """A single category block larger than max_chars is split at item boundaries."""
+        # Build a DAIRY block with 80 items — far too large for max_chars=200
+        lines = ["SHOPPING LIST - Mar 15", ""]
+        lines.append("DAIRY")
+        for i in range(80):
+            lines.append(f"- DairyItem{i:02d}")
+        lines.append("")
+        lines.append("* = pending confirmation\nReply DONE when finished.")
+        text = "\n".join(lines)
+        max_chars = 200
+        result = self._split(text, max_chars=max_chars)
+        # Every chunk must respect the size limit
+        for chunk in result:
+            assert len(chunk) <= max_chars, (
+                f"Chunk too long ({len(chunk)} > {max_chars}): {chunk!r}"
+            )
+        # The category header must appear at least once across all chunks
+        full_output = "\n".join(result)
+        assert "DAIRY" in full_output
+
 
 # ---------------------------------------------------------------------------
 # Tests for normalize_category
