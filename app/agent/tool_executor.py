@@ -208,13 +208,17 @@ _DISPATCH: dict = {
 
 
 def execute(tool_name: str, tool_input: dict, user_id: int, db: Session) -> str:
-    """Execute a named tool and return the result as a JSON string."""
+    """Execute a named tool and return the result as a JSON string.
+
+    Any exception raised by a handler is caught and returned as an error dict
+    so the orchestrator loop can continue rather than aborting mid-conversation.
+    """
     handler = _DISPATCH.get(tool_name)
     if handler is None:
-        result = {"error": f"Unknown tool: {tool_name}"}
+        result = {"error": f"Unknown tool: {tool_name}", "tool": tool_name}
     else:
         try:
             result = handler(tool_input, user_id, db)
-        except ValueError as exc:
-            result = {"error": str(exc)}
+        except Exception as exc:
+            result = {"error": str(exc), "tool": tool_name}
     return json.dumps(result)

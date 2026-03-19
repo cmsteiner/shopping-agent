@@ -15,3 +15,8 @@ def get_user_by_id(user_id: int, db: Session) -> User:
     if user is None:
         raise ValueError(f"User with id={user_id} not found")
     return user
+
+
+def get_all_users(db: Session) -> list[User]:
+    """Return all User records."""
+    return db.query(User).all()

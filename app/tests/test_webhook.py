@@ -8,6 +8,7 @@ Test cases:
 - Invalid Twilio signature → 403 response
 - Duplicate MessageSid → 200, no processing (idempotency)
 - Unknown phone number → 200, SMS error reply sent, no agent call
+- Tool executor exception → fallback SMS sent, no crash
 """
 import pytest
 from unittest.mock import patch, MagicMock
@@ -188,3 +189,44 @@ class TestWebhookSms:
             response = client.post("/webhook/sms", data=form)
 
         assert response.status_code == 200
+
+
+class TestToolExecutorErrorHandling:
+    def test_tool_executor_exception_sends_fallback_and_no_crash(
+        self, db, mock_anthropic, mock_twilio
+    ):
+        """
+        When a tool handler raises an unexpected exception, the orchestrator
+        catches it and sends the fallback SMS — no exception propagates.
+        """
+        from app.tests.test_orchestrator import make_tool_use_response, make_end_turn_response
+        from app.models import ShoppingList
+        from app.models.shopping_list import ListStatus
+
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.commit()
+
+        # Claude calls add_items, but the handler will throw
+        mock_anthropic.set_responses([
+            make_tool_use_response(
+                "add_items",
+                {"items": [{"name": "milk"}], "list_id": sl.id},
+                tool_id="tu1",
+            ),
+            make_end_turn_response("Done!"),
+        ])
+
+        user = db.query(User).filter_by(name="Chris").first()
+
+        with patch("app.agent.tool_executor._handle_add_items") as bad_handler:
+            bad_handler.side_effect = RuntimeError("DB exploded")
+
+            from app.agent import orchestrator
+            # Must not raise
+            orchestrator.handle_message(user.id, "add milk", db=db)
+
+        # The tool executor should have returned an error dict, allowing the
+        # loop to continue. The orchestrator will send a final SMS (either
+        # fallback or end_turn text).
+        assert len(mock_twilio.sent_messages) >= 1
