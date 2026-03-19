@@ -8,7 +8,7 @@ Test cases:
 - Assert item is written to DB and SMS is sent to the user
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 from sqlalchemy.orm import Session
 
 from app.tests.conftest import MockAnthropicClient, MockTwilioTracker
@@ -16,6 +16,7 @@ from app.tests.conftest import MockAnthropicClient, MockTwilioTracker
 from app.config import settings
 from app.models import User, Item, ShoppingList
 from app.models.shopping_list import ListStatus
+from app.models.item import ItemStatus
 
 
 # ---------------------------------------------------------------------------
@@ -148,3 +149,133 @@ class TestOrchestratorFlow:
 
                 assert len(sent) >= 1
                 assert "trouble" in sent[-1]["body"].lower()
+
+
+class TestOrchestratorPhase3:
+    """Extended orchestrator tests for Phase 3 commands."""
+
+    def test_done_command_calls_archive_list(
+        self, db: Session, mock_twilio: MockTwilioTracker, mock_anthropic: MockAnthropicClient
+    ):
+        """DONE command → archive_list tool called, list gets archived."""
+        from app.agent import orchestrator
+
+        # Create a SENT list (archive_list requires SENT)
+        sl = ShoppingList(status=ListStatus.SENT)
+        db.add(sl)
+        db.commit()
+        db.refresh(sl)
+
+        mock_anthropic.set_responses([
+            make_tool_use_response("archive_list", {}, tool_id="tu1"),
+            make_end_turn_response("Done! Shopping trip archived."),
+        ])
+
+        user = db.query(User).filter_by(name="Chris").first()
+        orchestrator.handle_message(user.id, "done", db=db)
+
+        # The original list should now be ARCHIVED
+        db.refresh(sl)
+        assert sl.status == ListStatus.ARCHIVED
+
+        # A new ACTIVE list should exist
+        new_active = (
+            db.query(ShoppingList).filter(ShoppingList.status == ListStatus.ACTIVE).first()
+        )
+        assert new_active is not None
+
+        # SMS should have been sent
+        assert any("archived" in m["body"].lower() or "done" in m["body"].lower()
+                   for m in mock_twilio.sent_messages)
+
+    def test_cancel_command_list_stays_active(
+        self, db: Session, mock_twilio: MockTwilioTracker, mock_anthropic: MockAnthropicClient
+    ):
+        """CANCEL command → no archive, list stays ACTIVE."""
+        from app.agent import orchestrator
+
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.commit()
+        db.refresh(sl)
+
+        # Claude just ends the turn with a cancel confirmation, no archive_list call
+        mock_anthropic.set_responses([
+            make_end_turn_response("No problem, cancelled."),
+        ])
+
+        user = db.query(User).filter_by(name="Chris").first()
+        orchestrator.handle_message(user.id, "cancel", db=db)
+
+        # List must still be ACTIVE
+        db.refresh(sl)
+        assert sl.status == ListStatus.ACTIVE
+
+    def test_duplicate_detected_hold_pending_called(
+        self, db: Session, mock_twilio: MockTwilioTracker, mock_anthropic: MockAnthropicClient
+    ):
+        """Duplicate detected → hold_pending called, PENDING item created, confirmation SMS sent."""
+        from app.agent import orchestrator
+
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        existing = Item(list_id=sl.id, name="milk", status=ItemStatus.ACTIVE)
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+
+        mock_anthropic.set_responses([
+            make_tool_use_response(
+                "hold_pending",
+                {"item": {"name": "milk"}, "existing_item_id": existing.id},
+                tool_id="tu1",
+            ),
+            make_end_turn_response(
+                "Milk might already be on the list — reply 'yes add it' or 'skip milk'."
+            ),
+        ])
+
+        user = db.query(User).filter_by(name="Chris").first()
+        orchestrator.handle_message(user.id, "add milk", db=db)
+
+        # A PENDING item must have been created
+        pending_items = (
+            db.query(Item).filter(Item.status == ItemStatus.PENDING).all()
+        )
+        assert len(pending_items) == 1
+        assert pending_items[0].name == "milk"
+
+        # SMS should mention the duplicate
+        last_msg = mock_twilio.sent_messages[-1]["body"]
+        assert "milk" in last_msg.lower()
+
+    def test_preview_does_not_change_list_status(
+        self, db: Session, mock_twilio: MockTwilioTracker, mock_anthropic: MockAnthropicClient
+    ):
+        """PREVIEW → get_list called, list status unchanged (no send_list transition)."""
+        from app.agent import orchestrator
+
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        db.add(Item(list_id=sl.id, name="milk", status=ItemStatus.ACTIVE, category="Dairy"))
+        db.commit()
+        db.refresh(sl)
+
+        # Claude calls get_list, then ends turn with formatted list (does NOT call send_list)
+        mock_anthropic.set_responses([
+            make_tool_use_response("get_list", {}, tool_id="tu1"),
+            make_end_turn_response("Here's your list:\nDairy:\n- milk"),
+        ])
+
+        user = db.query(User).filter_by(name="Chris").first()
+        orchestrator.handle_message(user.id, "preview", db=db)
+
+        # List status must remain ACTIVE
+        db.refresh(sl)
+        assert sl.status == ListStatus.ACTIVE
+
+        # SMS should have been sent to the requester
+        assert len(mock_twilio.sent_messages) >= 1
+        assert mock_twilio.sent_messages[-1]["to"] == user.phone_number
