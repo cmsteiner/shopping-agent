@@ -72,3 +72,76 @@ def client(db: Session) -> TestClient:
 
     with TestClient(test_app, raise_server_exceptions=True) as c:
         yield c
+
+
+# ---------------------------------------------------------------------------
+# Mock Anthropic fixture (shared)
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch, MagicMock
+
+
+class MockAnthropicMessages:
+    """Simulates anthropic.Anthropic().messages with a pre-configured response queue."""
+
+    def __init__(self):
+        self._responses = []
+        self._call_index = 0
+
+    def set_responses(self, responses: list):
+        self._responses = responses
+        self._call_index = 0
+
+    def create(self, **kwargs):
+        if self._call_index >= len(self._responses):
+            raise RuntimeError(
+                f"MockAnthropic: no response configured for call #{self._call_index}"
+            )
+        resp = self._responses[self._call_index]
+        self._call_index += 1
+        return resp
+
+
+class MockAnthropicClient:
+    def __init__(self):
+        self.messages = MockAnthropicMessages()
+
+    def set_responses(self, responses: list):
+        self.messages.set_responses(responses)
+
+
+@pytest.fixture
+def mock_anthropic():
+    """Patch anthropic.Anthropic to return a controllable mock."""
+    client = MockAnthropicClient()
+    with patch("app.agent.orchestrator.anthropic.Anthropic", return_value=client):
+        yield client
+
+
+# ---------------------------------------------------------------------------
+# Mock Twilio fixture (shared)
+# ---------------------------------------------------------------------------
+
+
+class MockTwilioTracker:
+    """Records all SMS messages sent during the test."""
+
+    def __init__(self):
+        self.sent_messages = []
+
+    def send_sms(self, to: str, body: str) -> str:
+        self.sent_messages.append({"to": to, "body": body})
+        return "SM_fake_sid"
+
+    def send_error_sms(self, to: str) -> None:
+        self.sent_messages.append({"to": to, "body": "__error__"})
+
+
+@pytest.fixture
+def mock_twilio():
+    """Patch sms_service functions with in-memory tracker."""
+    tracker = MockTwilioTracker()
+    with patch("app.agent.orchestrator.sms_service") as mock_svc:
+        mock_svc.send_sms.side_effect = tracker.send_sms
+        mock_svc.send_error_sms.side_effect = tracker.send_error_sms
+        yield tracker
