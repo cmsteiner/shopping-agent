@@ -25,9 +25,11 @@ def _handle_parse_items(tool_input: dict, user_id: int, db: Session):
     echoes back the text so Claude can produce structured items on the next
     iteration.  Phase 3 will add a real NLP pipeline if needed.
     """
-    text = tool_input.get("text", "")
-    # Return the raw text so Claude can use it; actual parsing is done by Claude.
-    return {"parsed_text": text, "status": "ok"}
+    # Return a clear directive so Claude knows to call add_items next.
+    return {
+        "status": "ok",
+        "message": "Text received. Please call add_items with the items you've identified from the text.",
+    }
 
 
 def _handle_add_items(tool_input: dict, user_id: int, db: Session):

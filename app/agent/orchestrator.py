@@ -59,8 +59,10 @@ def handle_message(user_id: int, body: str, db=None) -> None:
     if _owns_db:
         db = SessionLocal()
 
+    user_phone: str | None = None
     try:
         user = get_user_by_id(user_id, db)
+        user_phone = user.phone_number  # Cache before any DB operations
 
         # Note: the inbound message is logged by the webhook router (with its
         # Twilio SID) before this background task is enqueued. We do NOT
@@ -125,11 +127,11 @@ def handle_message(user_id: int, body: str, db=None) -> None:
 
     except Exception:
         logger.exception("Error in orchestrator.handle_message for user_id=%s", user_id)
-        try:
-            user_obj = get_user_by_id(user_id, db)
-            sms_service.send_sms(user_obj.phone_number, _FALLBACK_MESSAGE)
-        except Exception:
-            logger.exception("Failed to send fallback SMS for user_id=%s", user_id)
+        if user_phone:
+            try:
+                sms_service.send_sms(user_phone, _FALLBACK_MESSAGE)
+            except Exception:
+                logger.exception("Failed to send fallback SMS for user_id=%s", user_id)
 
     finally:
         if _owns_db:

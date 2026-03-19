@@ -82,6 +82,7 @@ class TestWebhookSms:
         assert response.status_code == 200
         assert "text/xml" in response.headers["content-type"]
         assert "<Response" in response.text
+        mock_orchestrator.handle_message.assert_called_once()
 
     def test_invalid_signature_returns_403(self, db):
         """Invalid Twilio signature → 403."""

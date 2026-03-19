@@ -43,7 +43,7 @@ async def receive_sms(
     # ------------------------------------------------------------------
     if settings.environment != "development":
         validator = RequestValidator(settings.twilio_auth_token)
-        form_params = dict(await request.form())
+        form_params = {"From": From, "Body": Body, "MessageSid": MessageSid}
         url = str(request.url)
         if not validator.validate(url, form_params, X_Twilio_Signature):
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")

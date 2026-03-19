@@ -9,9 +9,9 @@ TOOLS: list[dict] = [
     {
         "name": "parse_items",
         "description": (
-            "Extract individual grocery items from natural-language text. "
-            "Returns a list of structured item objects with name, quantity, unit, "
-            "brand_hint, and category fields."
+            "Acknowledges the natural language text for item extraction. "
+            "Claude should parse the items itself and proceed to call add_items "
+            "with the extracted items."
         ),
         "input_schema": {
             "type": "object",
