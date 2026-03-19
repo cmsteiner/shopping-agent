@@ -1,7 +1,7 @@
 """BrandPreference ORM model."""
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -9,6 +9,7 @@ from app.models.base import Base
 
 class BrandPreference(Base):
     __tablename__ = "brand_preferences"
+    __table_args__ = (UniqueConstraint("item_name", name="uq_brand_preferences_item_name"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     item_name: Mapped[str] = mapped_column(String(200), nullable=False)

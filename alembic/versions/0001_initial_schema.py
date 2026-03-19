@@ -75,6 +75,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["set_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("item_name", name="uq_brand_preferences_item_name"),
     )
 
     op.create_table(

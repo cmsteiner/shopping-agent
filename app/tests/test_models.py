@@ -288,30 +288,31 @@ class TestPendingConfirmation:
 
 # ---------------------------------------------------------------------------
 # Invariant: only one ACTIVE or SENT list at a time
-# (application-level enforcement test — we test the constraint can be checked)
+#
+# The DB schema does NOT enforce this invariant — there is no unique index or
+# check constraint preventing multiple ACTIVE lists at the SQL level.
+# Enforcement is entirely at the application layer (list_service.py), which
+# will be tested in Phase 3.
 # ---------------------------------------------------------------------------
 
 class TestListInvariant:
-    def test_only_one_active_list_invariant(self, db: Session):
+    def test_db_does_not_enforce_single_active_list(self, db: Session):
         """
-        The invariant is enforced at the application layer.
-        Verify that querying for active lists returns at most 1.
-        This test seeds one ACTIVE list and asserts the count.
+        Documents that the database does NOT prevent inserting two ACTIVE lists.
+        The single-active-list invariant is enforced at the application layer
+        (list_service.py), not by a DB constraint. This test intentionally
+        inserts two ACTIVE lists to confirm no IntegrityError is raised.
+        Application-layer enforcement will be tested in Phase 3.
         """
-        # Cleanup any seeded lists (from conftest)
-        db.query(ShoppingList).filter(
-            ShoppingList.status.in_([ListStatus.ACTIVE, ListStatus.SENT])
-        ).update({"status": ListStatus.ARCHIVED})
-        db.commit()
-
-        sl = ShoppingList(status=ListStatus.ACTIVE)
-        db.add(sl)
-        db.commit()
+        sl1 = ShoppingList(status=ListStatus.ACTIVE)
+        sl2 = ShoppingList(status=ListStatus.ACTIVE)
+        db.add_all([sl1, sl2])
+        db.commit()  # must NOT raise — DB has no constraint here
 
         active_count = db.query(ShoppingList).filter(
-            ShoppingList.status.in_([ListStatus.ACTIVE, ListStatus.SENT])
+            ShoppingList.status == ListStatus.ACTIVE
         ).count()
-        assert active_count == 1
+        assert active_count >= 2  # gap acknowledged; application layer must guard this
 
     def test_can_have_multiple_archived_lists(self, db: Session):
         sl1 = ShoppingList(status=ListStatus.ARCHIVED)
