@@ -96,13 +96,15 @@ class TestTimeoutCheckLogic:
         """List SENT 9 hours ago, timeout prompt already sent → skipped (idempotency)."""
         sl = _make_sent_list(db, hours_ago=9)
 
-        # Log a prior timeout message sent after sent_at
+        # Log a prior timeout message with created_at within the 1-hour idempotency
+        # window (sent_at to sent_at + 1h) so the scoped check detects it.
         user = db.query(User).filter_by(name="Chris").first()
         msg = Message(
             user_id=user.id,
             direction=MessageDirection.OUTBOUND,
             body=TIMEOUT_MESSAGE,
             twilio_sid=None,
+            created_at=sl.sent_at + timedelta(minutes=30),
         )
         db.add(msg)
         db.commit()

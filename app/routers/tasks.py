@@ -24,6 +24,8 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 @router.post("/timeout-check")
 def timeout_check(request: Request, db: Session = Depends(get_db)):
     """Run the shopping trip timeout check."""
+    if not settings.webhook_secret:
+        raise HTTPException(status_code=403, detail="Webhook secret not configured")
     secret = request.headers.get("X-Cron-Secret")
     if secret != settings.webhook_secret:
         raise HTTPException(status_code=403, detail="Invalid cron secret")

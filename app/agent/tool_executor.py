@@ -8,7 +8,11 @@ Phase 2 fully implements: parse_items, add_items.
 Phase 3 fills in all remaining stubs.
 """
 import json
+import logging
+
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.services import item_service, sms_service
 from app.services import duplicate_service, list_service, brand_service
@@ -220,5 +224,6 @@ def execute(tool_name: str, tool_input: dict, user_id: int, db: Session) -> str:
         try:
             result = handler(tool_input, user_id, db)
         except Exception as exc:
+            logger.exception("Tool handler failed: tool=%s error=%s", tool_name, exc)
             result = {"error": str(exc), "tool": tool_name}
     return json.dumps(result)

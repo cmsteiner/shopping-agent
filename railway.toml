@@ -4,4 +4,4 @@ healthcheckPath = "/health"
 
 [[cron]]
 schedule = "*/30 * * * *"
-command = "curl -s -X POST https://$RAILWAY_PUBLIC_DOMAIN/tasks/timeout-check -H 'X-Cron-Secret: $WEBHOOK_SECRET'"
+command = "curl -sf --max-time 30 -X POST https://$RAILWAY_PUBLIC_DOMAIN/tasks/timeout-check -H 'X-Cron-Secret: $WEBHOOK_SECRET'"

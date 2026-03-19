@@ -1,5 +1,5 @@
 """Message service — log and look up SMS messages."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -35,17 +35,21 @@ def get_by_twilio_sid(twilio_sid: str, db: Session) -> Message | None:
     return db.query(Message).filter(Message.twilio_sid == twilio_sid).first()
 
 
-def has_timeout_prompt_been_sent(sent_at: datetime, db: Session) -> bool:
+def has_timeout_prompt_been_sent(list_sent_at: datetime, list_id: int, db: Session) -> bool:
     """
-    Check whether a timeout prompt has already been sent after the given
-    sent_at datetime.  Uses the TIMEOUT_MESSAGE constant as the search key.
+    Check whether a timeout prompt has already been sent for a specific list.
+
+    Looks for an outbound timeout message sent after list_sent_at and within
+    a one-hour window, preventing one list's prompt from masking another's.
     """
+    window_end = list_sent_at + timedelta(hours=1)
     existing = (
         db.query(Message)
         .filter(
             Message.direction == MessageDirection.OUTBOUND,
             Message.body.contains(_TIMEOUT_PROMPT_MARKER),
-            Message.created_at > sent_at,
+            Message.created_at > list_sent_at,
+            Message.created_at < window_end,
         )
         .first()
     )
