@@ -11,7 +11,7 @@ POST /webhook/sms:
 """
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Header, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from twilio.base.exceptions import TwilioRestException
 from twilio.request_validator import RequestValidator
@@ -34,19 +34,27 @@ async def receive_sms(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    From: str = Form(...),
-    Body: str = Form(...),
-    MessageSid: str = Form(...),
     X_Twilio_Signature: str = Header(default=""),
 ):
     # ------------------------------------------------------------------
     # 1. Validate Twilio signature (skip in development)
     # ------------------------------------------------------------------
+    form_data = await request.form()
+    form_params = dict(form_data)
+    From = form_params.get("From", "")
+    Body = form_params.get("Body", "")
+    MessageSid = form_params.get("MessageSid", "")
+
     if settings.environment != "development":
         validator = RequestValidator(settings.twilio_auth_token)
-        form_params = {"From": From, "Body": Body, "MessageSid": MessageSid}
-        url = str(request.url)
+        # Reconstruct the public-facing HTTPS URL from forwarded headers
+        forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        forwarded_host = request.headers.get("x-forwarded-host", request.url.netloc)
+        url = f"{forwarded_proto}://{forwarded_host}{request.url.path}"
+        if request.url.query:
+            url = f"{url}?{request.url.query}"
         if not validator.validate(url, form_params, X_Twilio_Signature):
+            logger.warning("Invalid Twilio signature for URL: %s", url)
             raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
     # ------------------------------------------------------------------
