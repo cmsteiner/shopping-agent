@@ -13,6 +13,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
+from twilio.base.exceptions import TwilioRestException
 from twilio.request_validator import RequestValidator
 
 from app.config import settings
@@ -62,7 +63,10 @@ async def receive_sms(
     user = get_user_by_phone(From, db)
     if user is None:
         logger.warning("Unknown phone number: %s", From)
-        sms_service.send_error_sms(From)
+        try:
+            sms_service.send_error_sms(From)
+        except TwilioRestException as exc:
+            logger.error("Failed to send error SMS to %s: %s", From, exc)
         return Response(content=_TWIML_EMPTY, media_type="text/xml")
 
     # ------------------------------------------------------------------
