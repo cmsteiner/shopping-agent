@@ -9,10 +9,18 @@ Phase 3 fills in all remaining stubs.
 """
 import json
 import logging
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
+
+
+class _DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
 
 from app.services import item_service, sms_service
 from app.services import duplicate_service, list_service, brand_service
@@ -222,4 +230,4 @@ def execute(tool_name: str, tool_input: dict, user_id: int, db: Session) -> str:
         except Exception as exc:
             logger.exception("Tool handler failed: tool=%s error=%s", tool_name, exc)
             result = {"error": str(exc), "tool": tool_name}
-    return json.dumps(result)
+    return json.dumps(result, cls=_DecimalEncoder)
