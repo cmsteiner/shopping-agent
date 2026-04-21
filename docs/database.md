@@ -39,7 +39,7 @@ There is always exactly one ACTIVE list at any given time. A new ACTIVE list is 
 | id | INTEGER | PK, autoincrement |
 | list_id | INTEGER | FK → shopping_lists.id, NOT NULL |
 | name | VARCHAR | NOT NULL |
-| quantity | FLOAT | nullable |
+| quantity | NUMERIC(10, 3) | nullable |
 | unit | VARCHAR | nullable |
 | brand_pref | VARCHAR | nullable |
 | category | VARCHAR | nullable |
@@ -84,8 +84,8 @@ One brand preference per item name (case-insensitive; stored and queried in lowe
 |--------|------|-------------|
 | id | INTEGER | PK, autoincrement |
 | item_id | INTEGER | FK → items.id, NOT NULL |
-| existing_item_id | INTEGER | FK → items.id, NOT NULL |
-| triggered_by | INTEGER | FK → users.id, nullable |
+| existing_item_id | INTEGER | FK → items.id, nullable |
+| triggered_by | INTEGER | FK → users.id, NOT NULL |
 | expires_at | DATETIME | NOT NULL |
 | created_at | DATETIME | NOT NULL, default=now |
 
