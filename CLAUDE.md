@@ -26,15 +26,19 @@ SMS-driven household shopping list manager for two users (Chris and Donna). User
 ## Layer Map
 
 ```
-routers/          ← HTTP request handling, signature validation, idempotency
-  └─ agent/       ← Claude tool-use loop
-      ├─ orchestrator.py       (loop driver)
-      ├─ context_builder.py    (system prompt assembly)
-      ├─ tool_definitions.py   (Anthropic tool schemas)
-      └─ tool_executor.py      (tool dispatch → services)
-  └─ services/    ← Business logic, DB mutations
-  └─ models/      ← SQLAlchemy ORM models
-  └─ utils/       ← SMS formatting, category normalization
+app/
+  routers/       ← HTTP handling, signature validation, idempotency
+  agent/         ← Claude tool-use loop
+    orchestrator.py       (loop driver)
+    context_builder.py    (system prompt assembly)
+    tool_definitions.py   (Anthropic tool schemas)
+    tool_executor.py      (tool dispatch → services)
+  services/      ← Business logic, DB mutations
+  models/        ← SQLAlchemy ORM models
+  tasks/         ← Background task logic (timeout check)
+  utils/         ← SMS formatting, category normalization
+
+Call flow: routers → agent → services → models
 ```
 
 ## Extension Points
@@ -43,7 +47,7 @@ routers/          ← HTTP request handling, signature validation, idempotency
 1. Add schema to `app/agent/tool_definitions.py`
 2. Add handler `_handle_<name>()` to `app/agent/tool_executor.py`
 3. Add service logic to `app/services/` if needed
-4. Update the system prompt in `app/agent/orchestrator.py` to instruct Claude when to use it
+4. If Claude needs explicit instructions about when to call the new tool, add a note to the system prompt in `app/agent/context_builder.py`
 
 **Adding a new delivery channel (web UI, voice, etc.):**
 1. Add a new router in `app/routers/`
