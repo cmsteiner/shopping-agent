@@ -77,7 +77,7 @@ Every handler:
 - Returns a plain dict
 - Catches all exceptions and returns `{"error": str(e)}` instead of raising
 
-Tool results are converted to strings before being added to the messages list: `"content": str(result)`. Claude receives the stringified representation.
+`tool_executor.execute()` returns a JSON string (via `json.dumps()`, with a custom encoder for `Decimal` types). The orchestrator passes this directly as the `content` value of each tool result — no further conversion is needed.
 
 A tool failure never crashes the conversation loop — Claude sees the error string and can recover.
 
@@ -144,7 +144,7 @@ Uses `rapidfuzz.token_set_ratio`. Threshold is `settings.duplicate_threshold` (d
 ```json
 {
   "items": [
-    {"name": "milk", "quantity": 1, "unit": null, "brand_pref": null, "category": null}
+    {"name": "milk", "quantity": 1, "unit": null, "brand_hint": null, "category": null}
   ],
   "list_id": null
 }
