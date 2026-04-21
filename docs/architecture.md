@@ -94,7 +94,7 @@ The webhook handler enqueues `orchestrator.handle_message()` as a FastAPI `Backg
 Every inbound Twilio message has a unique `MessageSid`. The webhook handler checks the `messages` table for a matching `twilio_sid` before processing. If found, it returns HTTP 200 without reprocessing. This safely handles Twilio retries without creating duplicate items.
 
 ### Model Selection: Haiku vs Sonnet
-By default the loop uses `claude-haiku-4-5-20251001` (fast, cheap). It upgrades to `claude-sonnet-4-6` when the system prompt string contains indicators of complexity: the word "pending" (pending confirmations exist) or both the word "brand" and multiple list items (indicated by dash count). See `docs/tools.md` for the exact logic.
+By default the loop uses `claude-haiku-4-5-20251001` (fast, cheap). It upgrades to `claude-sonnet-4-6` based on a string inspection of the already-assembled system prompt: if the prompt contains the word `"pending"` (indicating a pending confirmation exists) or contains both `"brand"` and more than two dashes (used as a proxy for a list with multiple items). The check is text-based — it does not make additional DB queries at decision time. See `docs/tools.md` for the exact logic.
 
 ### Tool Exception Isolation
 Every handler in `tool_executor.py` wraps its logic in try/except and returns `{"error": "..."}` on failure rather than raising. This means a single tool failure does not crash the conversation — Claude sees the error and can recover or inform the user.
