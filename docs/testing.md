@@ -38,7 +38,8 @@ def db() -> Session:
         poolclass=StaticPool,
     )
     Base.metadata.create_all(bind=engine)
-    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = TestingSessionLocal()
 
     for name, phone in [("Chris", settings.chris_phone), ("Donna", settings.donna_phone)]:
         if not session.query(User).filter(User.phone_number == phone).first():
@@ -85,12 +86,12 @@ def mock_anthropic():
     with patch("app.agent.orchestrator.anthropic.Anthropic", return_value=client):
         yield client
 
-# Usage in a test:
+# Usage in a test (simplified — real flows typically have more tool calls):
 def test_add_items(mock_anthropic, mock_twilio, db):
     mock_anthropic.set_responses([
-        # First call: Claude uses tool
+        # Each list entry is consumed by one loop iteration
         make_tool_use_response("parse_items", {"text": "add milk"}),
-        # Final call: Claude ends turn
+        # ... intermediate tool calls (check_duplicates, add_items) ...
         make_end_turn_response("Added milk to your list."),
     ])
     orchestrator.handle_message(user_id=1, body="add milk", db=db)
@@ -125,11 +126,11 @@ def test_unknown_number(mock_twilio, db):
 |------|---------------|
 | `test_models.py` | ORM model construction, enum values, FK relationships, unique constraint enforcement |
 | `test_health.py` | `GET /health` returns `{"status": "ok"}` with HTTP 200 |
-| `test_webhook.py` | Inbound SMS: duplicate `MessageSid` returns 200 without reprocessing; unknown phone sends error SMS; valid request logs message and enqueues background task |
-| `test_orchestrator.py` | Tool-use loop: model selection (Haiku vs Sonnet conditions), tool dispatch routing, `end_turn` text extraction and SMS send, loop exhaustion (10 iterations) → fallback SMS, Claude API exception → fallback SMS |
+| `test_webhook.py` | Inbound SMS: valid signature enqueues background task and logs message; invalid Twilio signature returns 403; duplicate `MessageSid` returns 200 without reprocessing; unknown phone sends error SMS and returns 200; development mode skips signature validation; tool executor exception sends fallback SMS without crashing |
+| `test_orchestrator.py` | Tool-use loop: end_turn text extraction and SMS send, loop exhaustion → fallback SMS, Claude API exception → fallback SMS; Phase 3 flows: DONE command calls archive_list, CANCEL keeps list ACTIVE, duplicate detection creates PENDING item, preview retrieves list without changing status |
 | `test_brand_service.py` | `get_brand_preference`: found (case-insensitive), not found; `save_brand_preference`: creates new record, updates existing record |
 | `test_duplicate_service.py` | Score below threshold → clear; score at/above threshold → possible_duplicate; empty active list → all clear |
-| `test_item_service.py` | `add_items`: creates Item records, auto-applies stored brand preference when brand not provided; `hold_pending`: creates PENDING Item and PendingConfirmation; `override_category`: updates item category |
+| `test_item_service.py` | `hold_pending`: creates PENDING Item and PendingConfirmation row, verifies expiry set to ~24h; `override_category`: updates item category, raises `ValueError` for missing item ID |
 | `test_list_service.py` | `get_list`: returns items grouped by category with PENDING annotation; `send_list`: transitions ACTIVE→SENT, sets sent_at; `archive_list`: transitions SENT→ARCHIVED, sets archived_at, creates new ACTIVE list |
-| `test_sms_formatting.py` | `format_list`: header with date, categories in canonical order, items with quantity/unit/brand, footer; `split_sms`: single chunk (no prefix), multi-chunk (prefixed, footer on last), oversized single category (repeated header on continuation) |
+| `test_sms_formatting.py` | `format_list`: header with date, categories in canonical order, items with quantity/unit/brand, footer; `split_sms`: single chunk (no prefix), multi-chunk (prefixed, footer on last), oversized single category; `normalize_category`: canonical match, case-insensitive, unknown falls back to OTHER; `add_items` brand auto-apply: applies stored preference, does not override explicit brand |
 | `test_timeout_check.py` | `run_timeout_check`: finds SENT lists older than threshold; skips if timeout prompt already sent (idempotency); sends SMS to all users; logs outbound Message records with twilio_sid=None |
