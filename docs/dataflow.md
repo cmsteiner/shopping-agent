@@ -16,10 +16,10 @@ All user-initiated flows start with an inbound SMS arriving at Twilio and end wi
 8. Webhook returns `<Response/>` (HTTP 200) to Twilio immediately
 9. Background task starts: `orchestrator.handle_message()`
 10. `context_builder.build_system_prompt(user, db)` queries DB: active list items, brand prefs, pending confirmations, last 10 messages; returns system prompt string
-11. Orchestrator selects model by inspecting the system prompt string for `"pending"` and `"brand"` keywords — no matches → Haiku (`claude-haiku-4-5-20251001`)
+11. Orchestrator selects model: inspects system prompt string for `"pending"` (any pending confirmation) or `"brand"` combined with more than two dash characters (multiple brand-prefixed items); neither condition met → Haiku (`claude-haiku-4-5-20251001`)
 12. Orchestrator calls `anthropic.messages.create()` with system prompt + user message + 11 tool schemas
 13. Claude responds: `stop_reason="tool_use"`, calls `parse_items(text="add milk and eggs")`
-14. `tool_executor.execute("parse_items", ...)` returns `{"status": "ok", "message": "Text received..."}`
+14. `tool_executor.execute("parse_items", ...)` returns `{"status": "ok", "message": "Text received. Please call add_items with the items you've identified from the text."}`
 15. Orchestrator appends tool result to messages list; calls `anthropic.messages.create()` again
 16. Claude calls `check_duplicates(items=[{"name": "milk"}, {"name": "eggs"}])`
 17. `tool_executor` → `duplicate_service.check_duplicates()` → fuzzy-matches against active list items using `rapidfuzz.token_set_ratio` → both score below threshold (default 85) → both clear
@@ -50,7 +50,7 @@ Steps 1–16 are identical to the happy path. The divergence occurs when `check_
 24. User receives confirmation prompt via SMS
 25. User replies: `"yes add it"`
 26. New inbound webhook flow starts from step 1
-27. `context_builder` includes pending confirmation in system prompt; system prompt now contains `"pending"` → model upgrades to Sonnet
+27. `context_builder` includes pending confirmation in system prompt; system prompt now contains `"pending"` → model upgrades to Sonnet (`claude-sonnet-4-6`)
 28. Claude resolves confirmation by calling `add_items()` to promote the pending item to ACTIVE status
 
 ---
@@ -93,7 +93,7 @@ Steps 1–16 are identical to the happy path. The divergence occurs when `check_
 3. Calls `run_timeout_check(db)`
 4. Queries DB: all `ShoppingList` records with `status=SENT` and `sent_at < (now - 8 hours)`
 5. For each timed-out list:
-   a. Calls `message_service.has_timeout_prompt_been_sent(list.sent_at, list.id, db)` — searches message history for `"Did you finish"` in messages logged after `sent_at`
+   a. Calls `message_service.has_timeout_prompt_been_sent(list.sent_at, list.id, db)` — searches message history for `"Did you finish"` in outbound messages logged between `sent_at` and `sent_at + 1 hour` (a 1-hour window prevents one list's prompt from masking another list's check)
    b. If already sent: skip (idempotency)
    c. If not sent: calls `sms_service.send_sms()` to all users: `"Did you finish your shopping trip? Reply DONE to archive the list or CANCEL to keep it active."`
    d. Logs outbound `Message` records with `twilio_sid=None` for each user
