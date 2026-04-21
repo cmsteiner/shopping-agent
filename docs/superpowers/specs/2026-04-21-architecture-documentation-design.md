@@ -20,6 +20,7 @@ Document the shopping-agent application's architecture and dataflow in anticipat
 | `docs/dataflow.md` | All message paths end-to-end, step-by-step |
 | `docs/database.md` | Schema tables, FK relationships, state machines, notable constraints |
 | `docs/tools.md` | Claude tool-use loop mechanics, all 11 tools, extension guide |
+| `docs/testing.md` | Test infrastructure, fixtures, mock strategy, test file inventory |
 
 ---
 
@@ -94,8 +95,32 @@ Document the shopping-agent application's architecture and dataflow in anticipat
 
 ---
 
+---
+
+## `docs/testing.md`
+
+**Contents:**
+- Test stack: pytest, httpx, pytest-asyncio; in-memory SQLite (not the production DB path)
+- Test location: `app/tests/` — 10 test files + `conftest.py`
+- **`db` fixture**: function-scoped; creates a fresh in-memory SQLite engine, runs `Base.metadata.create_all`, seeds Chris and Donna from `settings`, yields the session, drops all tables and disposes engine on teardown
+- **`client` fixture**: function-scoped; builds a minimal FastAPI test app (no lifespan) that includes only the health router; overrides `get_db` dependency with the `db` fixture session; yields a `TestClient`
+- **`mock_anthropic` fixture**: patches `app.agent.orchestrator.anthropic.Anthropic`; returns a `MockAnthropicClient` with a pre-configured response queue (`set_responses(list)`); calls consume responses in order; raises `RuntimeError` if queue is exhausted
+- **`mock_twilio` fixture**: patches `app.agent.orchestrator.sms_service`; returns a `MockTwilioTracker` that records all `send_sms` and `send_error_sms` calls to `tracker.sent_messages`; returns fake SID `"SM_fake_sid"`
+- Test file inventory with what each covers:
+  - `test_models.py` — ORM model construction and constraints
+  - `test_health.py` — GET /health
+  - `test_webhook.py` — POST /webhook/sms (idempotency, unknown number, happy path)
+  - `test_orchestrator.py` — tool-use loop, model selection, fallback SMS
+  - `test_brand_service.py` — get/save brand preference, case-insensitive lookup
+  - `test_duplicate_service.py` — fuzzy match thresholds, clear vs possible_duplicate classification
+  - `test_item_service.py` — add_items (brand auto-apply), hold_pending, override_category
+  - `test_list_service.py` — get_list, send_list, archive_list, state transitions
+  - `test_sms_formatting.py` — format_list, split_sms (single chunk, multi-chunk, oversized category)
+  - `test_timeout_check.py` — run_timeout_check, idempotency, message logging
+
+---
+
 ## Non-Goals
 
-- Do not document test fixtures or test infrastructure
 - Do not document deployment procedures
 - Do not guess at anything unclear in the code — note it explicitly if ambiguous
