@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # Webhook
     webhook_secret: str = ""
     web_shared_token: str = "dev-token"
+    web_dist_dir: str = "frontend/dist"
 
     # Database
     database_url: str = "sqlite:////data/shopping.db"
