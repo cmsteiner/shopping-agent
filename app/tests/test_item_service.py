@@ -1,13 +1,14 @@
 """
-Tests for item_service: hold_pending, override_category.
+Tests for item_service: hold_pending, override_category, update/delete/toggle behaviors.
 """
 import pytest
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 
-from app.models import Item, ShoppingList, PendingConfirmation
+from app.models import Category, Item, PendingConfirmation, ShoppingList, ShoppingTrip
 from app.models.shopping_list import ListStatus
 from app.models.item import ItemStatus
+from app.models.shopping_trip import TripStatus
 
 
 def _make_active_list(db: Session) -> ShoppingList:
@@ -133,3 +134,171 @@ class TestOverrideCategory:
 
         with pytest.raises(ValueError, match="not found"):
             override_category(item_id=99999, category="Produce", db=db)
+
+
+class TestUpdateItem:
+    def test_updates_editable_fields_and_increments_version(self, db: Session):
+        from app.services.item_service import update_item
+
+        sl = _make_active_list(db)
+        category = Category(name="Produce", normalized_name="produce", sort_order=10)
+        db.add(category)
+        db.flush()
+        item = Item(list_id=sl.id, name="Apple", quantity=1, category="Produce", category_id=category.id)
+        db.add(item)
+        db.commit()
+
+        updated = update_item(
+            item.id,
+            {
+                "name": "Apples",
+                "quantity": 2,
+                "notes": "Honeycrisp",
+            },
+            db=db,
+        )
+
+        assert updated.name == "Apples"
+        assert float(updated.quantity) == 2.0
+        assert updated.notes == "Honeycrisp"
+        assert updated.version == 2
+        assert updated.updated_at >= updated.created_at
+
+    def test_updates_category_text_when_category_id_changes(self, db: Session):
+        from app.services.item_service import update_item
+
+        sl = _make_active_list(db)
+        old_category = Category(name="Produce", normalized_name="produce", sort_order=10)
+        new_category = Category(name="Bakery", normalized_name="bakery", sort_order=20)
+        db.add_all([old_category, new_category])
+        db.flush()
+        item = Item(list_id=sl.id, name="Bread", category="Produce", category_id=old_category.id)
+        db.add(item)
+        db.commit()
+
+        updated = update_item(item.id, {"category_id": new_category.id}, db=db)
+
+        assert updated.category_id == new_category.id
+        assert updated.category == "Bakery"
+
+    def test_raises_for_missing_item(self, db: Session):
+        from app.services.item_service import update_item
+
+        with pytest.raises(ValueError, match="not found"):
+            update_item(99999, {"name": "Missing"}, db=db)
+
+    def test_records_item_updated_event(self, db: Session):
+        from app.services.item_service import update_item
+        from app.models import ListEvent
+
+        sl = _make_active_list(db)
+        item = _add_item(db, sl.id, "Apple")
+        db.commit()
+
+        update_item(item.id, {"name": "Apples"}, db=db)
+
+        event = db.query(ListEvent).order_by(ListEvent.id.desc()).first()
+        assert event is not None
+        assert event.list_id == sl.id
+        assert event.event_type == "item.updated"
+        assert event.entity_type == "item"
+        assert event.entity_id == item.id
+
+
+class TestDeleteItem:
+    def test_deletes_item(self, db: Session):
+        from app.services.item_service import delete_item
+
+        sl = _make_active_list(db)
+        item = _add_item(db, sl.id, "Milk")
+        db.commit()
+
+        delete_item(item.id, db=db)
+
+        assert db.query(Item).filter(Item.id == item.id).first() is None
+
+    def test_raises_for_missing_item(self, db: Session):
+        from app.services.item_service import delete_item
+
+        with pytest.raises(ValueError, match="not found"):
+            delete_item(99999, db=db)
+
+    def test_records_item_deleted_event(self, db: Session):
+        from app.services.item_service import delete_item
+        from app.models import ListEvent
+
+        sl = _make_active_list(db)
+        item = _add_item(db, sl.id, "Milk")
+        db.commit()
+
+        delete_item(item.id, db=db)
+
+        event = db.query(ListEvent).order_by(ListEvent.id.desc()).first()
+        assert event is not None
+        assert event.list_id == sl.id
+        assert event.event_type == "item.deleted"
+        assert event.entity_type == "item"
+        assert event.entity_id == item.id
+
+
+class TestTogglePurchased:
+    def test_marks_item_purchased_during_active_trip(self, db: Session):
+        from app.services.item_service import toggle_purchased
+
+        sl = _make_active_list(db)
+        item = Item(list_id=sl.id, name="Milk", new_during_trip=True)
+        db.add(item)
+        db.flush()
+        db.add(ShoppingTrip(list_id=sl.id, status=TripStatus.ACTIVE))
+        db.commit()
+
+        updated = toggle_purchased(item.id, True, db=db)
+
+        assert updated.is_purchased is True
+        assert updated.purchased_at is not None
+        assert updated.new_during_trip is False
+        assert updated.version == 2
+
+    def test_unchecks_item_during_active_trip(self, db: Session):
+        from app.services.item_service import toggle_purchased
+
+        sl = _make_active_list(db)
+        item = Item(list_id=sl.id, name="Milk", is_purchased=True, purchased_at=datetime.now(timezone.utc))
+        db.add(item)
+        db.flush()
+        db.add(ShoppingTrip(list_id=sl.id, status=TripStatus.ACTIVE))
+        db.commit()
+
+        updated = toggle_purchased(item.id, False, db=db)
+
+        assert updated.is_purchased is False
+        assert updated.purchased_at is None
+        assert updated.version == 2
+
+    def test_raises_when_no_active_trip(self, db: Session):
+        from app.services.item_service import toggle_purchased
+
+        sl = _make_active_list(db)
+        item = _add_item(db, sl.id, "Milk")
+        db.commit()
+
+        with pytest.raises(ValueError, match="active shopping trip"):
+            toggle_purchased(item.id, True, db=db)
+
+    def test_records_item_updated_event(self, db: Session):
+        from app.services.item_service import toggle_purchased
+        from app.models import ListEvent
+
+        sl = _make_active_list(db)
+        item = Item(list_id=sl.id, name="Milk")
+        db.add(item)
+        db.flush()
+        db.add(ShoppingTrip(list_id=sl.id, status=TripStatus.ACTIVE))
+        db.commit()
+
+        toggle_purchased(item.id, True, db=db)
+
+        event = db.query(ListEvent).order_by(ListEvent.id.desc()).first()
+        assert event is not None
+        assert event.list_id == sl.id
+        assert event.event_type == "item.updated"

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     # Webhook
     webhook_secret: str = ""
+    web_shared_token: str = "dev-token"
 
     # Database
     database_url: str = "sqlite:////data/shopping.db"

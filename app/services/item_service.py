@@ -3,10 +3,12 @@ from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import Item, ShoppingList, PendingConfirmation
+from app.models import Category, Item, PendingConfirmation, ShoppingList, ShoppingTrip
 from app.models.item import ItemStatus
 from app.models.shopping_list import ListStatus
+from app.models.shopping_trip import TripStatus
 from app.services import brand_service
+from app.services.realtime_service import record_event
 
 
 def _get_or_create_active_list(db: Session) -> ShoppingList:
@@ -56,6 +58,8 @@ def add_items(
             unit=item_data.get("unit"),
             brand_pref=explicit_brand or auto_brand,
             category=item_data.get("category"),
+            category_id=item_data.get("category_id"),
+            notes=item_data.get("notes"),
             status=ItemStatus.ACTIVE,
             added_by=user_id,
         )
@@ -145,6 +149,101 @@ def override_category(item_id: int, category: str, db: Session) -> Item:
         raise ValueError(f"Item with id={item_id} not found.")
 
     item.category = category
+    item.updated_at = datetime.now(timezone.utc)
+    item.version += 1
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def update_item(item_id: int, updates: dict, db: Session) -> Item:
+    """Update editable item fields and bump version metadata."""
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if item is None:
+        raise ValueError(f"Item with id={item_id} not found.")
+
+    editable_fields = {"name", "quantity", "unit", "notes"}
+    for field in editable_fields:
+        if field in updates:
+            setattr(item, field, updates[field])
+
+    if "category_id" in updates:
+        category_id = updates["category_id"]
+        item.category_id = category_id
+        if category_id is None:
+            item.category = None
+        else:
+            category = db.query(Category).filter(Category.id == category_id).first()
+            if category is None:
+                raise ValueError(f"Category with id={category_id} not found.")
+            item.category = category.name
+
+    item.updated_at = datetime.now(timezone.utc)
+    item.version += 1
+    record_event(
+        list_id=item.list_id,
+        event_type="item.updated",
+        entity_type="item",
+        entity_id=item.id,
+        payload={"id": item.id},
+        db=db,
+    )
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+def delete_item(item_id: int, db: Session) -> None:
+    """Delete an item by id."""
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if item is None:
+        raise ValueError(f"Item with id={item_id} not found.")
+
+    list_id = item.list_id
+    db.delete(item)
+    record_event(
+        list_id=list_id,
+        event_type="item.deleted",
+        entity_type="item",
+        entity_id=item_id,
+        payload={"id": item_id},
+        db=db,
+    )
+    db.commit()
+
+
+def toggle_purchased(item_id: int, is_purchased: bool, db: Session) -> Item:
+    """Toggle purchased state for an item during an active shopping trip."""
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if item is None:
+        raise ValueError(f"Item with id={item_id} not found.")
+
+    active_trip = (
+        db.query(ShoppingTrip)
+        .filter(
+            ShoppingTrip.list_id == item.list_id,
+            ShoppingTrip.status == TripStatus.ACTIVE,
+        )
+        .first()
+    )
+    if active_trip is None:
+        raise ValueError("Items can only be checked off during an active shopping trip.")
+
+    item.is_purchased = is_purchased
+    item.purchased_at = datetime.now(timezone.utc) if is_purchased else None
+    if is_purchased:
+        item.new_during_trip = False
+    item.updated_at = datetime.now(timezone.utc)
+    item.version += 1
+    record_event(
+        list_id=item.list_id,
+        event_type="item.updated",
+        entity_type="item",
+        entity_id=item.id,
+        payload={"id": item.id, "is_purchased": item.is_purchased},
+        db=db,
+    )
+
     db.commit()
     db.refresh(item)
     return item
