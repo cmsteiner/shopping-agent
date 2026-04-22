@@ -8,6 +8,24 @@ from app.models.item import ItemStatus
 from app.services.realtime_service import record_event
 
 
+def _serialize_item(item: Item) -> dict:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "quantity": str(item.quantity) if item.quantity is not None else None,
+        "unit": item.unit,
+        "notes": item.notes,
+        "category_id": item.category_id,
+        "category_name": item.category or "Uncategorized",
+        "status": item.status.value,
+        "is_purchased": item.is_purchased,
+        "new_during_trip": item.new_during_trip,
+        "version": item.version,
+        "created_at": item.created_at.isoformat().replace("+00:00", "Z") if item.created_at else None,
+        "updated_at": item.updated_at.isoformat().replace("+00:00", "Z") if item.updated_at else None,
+    }
+
+
 def resolve_duplicate(
     *,
     pending_confirmation_id: int,
@@ -38,7 +56,7 @@ def resolve_duplicate(
             event_type="item.duplicate_resolved",
             entity_type="item",
             entity_id=pending_item.id,
-            payload={"id": pending_item.id, "decision": decision},
+            payload={"decision": decision, "resolved_item": _serialize_item(pending_item)},
             db=db,
         )
         db.delete(confirmation)
@@ -62,7 +80,7 @@ def resolve_duplicate(
             event_type="item.duplicate_resolved",
             entity_type="item",
             entity_id=existing_item.id,
-            payload={"id": existing_item.id, "decision": decision},
+            payload={"decision": decision, "resolved_item": _serialize_item(existing_item)},
             db=db,
         )
         db.delete(confirmation)
@@ -78,7 +96,7 @@ def resolve_duplicate(
             event_type="item.duplicate_resolved",
             entity_type="item",
             entity_id=pending_item.id,
-            payload={"id": pending_item.id, "decision": decision},
+            payload={"decision": decision, "removed_pending_item_id": pending_item.id},
             db=db,
         )
         db.delete(confirmation)

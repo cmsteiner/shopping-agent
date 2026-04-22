@@ -10,6 +10,43 @@ from app.models.shopping_trip import TripStatus
 from app.services.realtime_service import record_event
 
 
+def _serialize_trip(trip: ShoppingTrip) -> dict:
+    return {
+        "id": trip.id,
+        "status": trip.status.value,
+        "started_at": trip.started_at.isoformat().replace("+00:00", "Z") if trip.started_at else None,
+        "completed_at": trip.completed_at.isoformat().replace("+00:00", "Z") if trip.completed_at else None,
+        "version": trip.version,
+    }
+
+
+def _serialize_list(shopping_list: ShoppingList) -> dict:
+    return {
+        "id": shopping_list.id,
+        "status": shopping_list.status.value,
+        "version": shopping_list.version,
+        "created_at": shopping_list.created_at.isoformat().replace("+00:00", "Z") if shopping_list.created_at else None,
+    }
+
+
+def _serialize_item(item: Item) -> dict:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "quantity": str(item.quantity) if item.quantity is not None else None,
+        "unit": item.unit,
+        "notes": item.notes,
+        "category_id": item.category_id,
+        "category_name": item.category or "Uncategorized",
+        "status": item.status.value,
+        "is_purchased": item.is_purchased,
+        "new_during_trip": item.new_during_trip,
+        "version": item.version,
+        "created_at": item.created_at.isoformat().replace("+00:00", "Z") if item.created_at else None,
+        "updated_at": item.updated_at.isoformat().replace("+00:00", "Z") if item.updated_at else None,
+    }
+
+
 def _get_active_list(db: Session) -> ShoppingList | None:
     return (
         db.query(ShoppingList)
@@ -63,7 +100,7 @@ def start_trip(db: Session) -> ShoppingTrip:
         event_type="trip.started",
         entity_type="trip",
         entity_id=trip.id,
-        payload={"id": trip.id},
+        payload={"trip": _serialize_trip(trip)},
         db=db,
     )
     db.commit()
@@ -159,7 +196,7 @@ def complete_finish_trip(
         event_type="trip.completed",
         entity_type="trip",
         entity_id=trip.id,
-        payload={"id": trip.id},
+        payload={"trip": _serialize_trip(trip)},
         db=db,
     )
     record_event(
@@ -167,7 +204,11 @@ def complete_finish_trip(
         event_type="list.replaced",
         entity_type="list",
         entity_id=new_list.id,
-        payload={"archived_list_id": archived_list.id, "new_list_id": new_list.id},
+        payload={
+            "archived_list_id": archived_list.id,
+            "new_active_list": _serialize_list(new_list),
+            "carried_over_items": [_serialize_item(item) for item in carried],
+        },
         db=db,
     )
 

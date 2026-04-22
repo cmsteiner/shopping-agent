@@ -595,3 +595,36 @@ class TestRealtimeStream:
         assert "event: item.updated" in body
         assert f"id: {second.id}" in body
         assert '"name": "Oat milk"' in body
+
+    def test_streams_events_after_last_event_id_header(self, api_client: TestClient, db: Session):
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        first = ListEvent(
+            list_id=sl.id,
+            event_type="category.created",
+            entity_type="category",
+            entity_id=1,
+            payload_json='{"category": {"id": 1, "name": "Dairy"}}',
+        )
+        second = ListEvent(
+            list_id=sl.id,
+            event_type="trip.started",
+            entity_type="trip",
+            entity_id=2,
+            payload_json='{"trip": {"id": 2, "status": "ACTIVE"}}',
+        )
+        db.add_all([first, second])
+        db.commit()
+
+        with api_client.stream(
+            "GET",
+            "/api/events/stream",
+            params={"token": settings.web_shared_token, "stream_once": True},
+            headers={"Last-Event-ID": str(first.id)},
+        ) as response:
+            body = next(response.iter_text())
+
+        assert response.status_code == 200
+        assert "event: trip.started" in body
+        assert f"id: {second.id}" in body

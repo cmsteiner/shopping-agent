@@ -118,6 +118,24 @@ function updateCategoryInData(data, updatedCategory) {
   };
 }
 
+function addCategoryToData(data, category) {
+  if (data.categories.some((entry) => entry.id === category.id)) {
+    return updateCategoryInData(data, category);
+  }
+  return {
+    ...data,
+    categories: [...data.categories, category]
+  };
+}
+
+function removeCategoryFromData(data, categoryId) {
+  return {
+    ...data,
+    categories: data.categories.filter((category) => category.id !== categoryId),
+    items_by_category: data.items_by_category.filter((group) => group.category.id !== categoryId)
+  };
+}
+
 export default function App({ token }) {
   const [state, setState] = useState(initialState);
   const [form, setForm] = useState({
@@ -213,10 +231,99 @@ export default function App({ token }) {
         }
       }));
     };
+    const handleCategoryCreated = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      const payload = JSON.parse(event.data);
+      setState((current) => ({
+        ...current,
+        data: addCategoryToData(current.data, payload.category)
+      }));
+    };
+    const handleCategoryUpdated = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      const payload = JSON.parse(event.data);
+      setState((current) => ({
+        ...current,
+        data: updateCategoryInData(current.data, payload.category)
+      }));
+    };
+    const handleCategoryDeleted = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      const payload = JSON.parse(event.data);
+      setState((current) => ({
+        ...current,
+        data: removeCategoryFromData(current.data, payload.category.id)
+      }));
+    };
+    const handleTripStarted = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      const payload = JSON.parse(event.data);
+      setState((current) => ({
+        ...current,
+        data: {
+          ...current.data,
+          trip: payload.trip
+        }
+      }));
+    };
+    const handleTripCompleted = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      setState((current) => ({
+        ...current,
+        data: {
+          ...current.data,
+          trip: null
+        }
+      }));
+    };
+    const handleListReplaced = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      const payload = JSON.parse(event.data);
+      setState((current) => ({
+        ...current,
+        data: {
+          ...current.data,
+          list: payload.new_active_list,
+          items_by_category: buildGroupsFromItems(current.data.categories, payload.carried_over_items)
+        }
+      }));
+    };
+    const handleDuplicateResolved = (event) => {
+      lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
+      const payload = JSON.parse(event.data);
+      setState((current) => {
+        if (payload.resolved_item) {
+          return {
+            ...current,
+            data: {
+              ...current.data,
+              items_by_category: upsertItemIntoGroups(current.data.items_by_category, payload.resolved_item)
+            }
+          };
+        }
+        if (payload.removed_pending_item_id) {
+          return {
+            ...current,
+            data: {
+              ...current.data,
+              items_by_category: removeItemFromGroups(current.data.items_by_category, payload.removed_pending_item_id)
+            }
+          };
+        }
+        return current;
+      });
+    };
 
     eventSource.addEventListener("item.updated", handleItemUpdated);
     eventSource.addEventListener("item.created", handleItemCreated);
     eventSource.addEventListener("item.deleted", handleItemDeleted);
+    eventSource.addEventListener("category.created", handleCategoryCreated);
+    eventSource.addEventListener("category.updated", handleCategoryUpdated);
+    eventSource.addEventListener("category.deleted", handleCategoryDeleted);
+    eventSource.addEventListener("trip.started", handleTripStarted);
+    eventSource.addEventListener("trip.completed", handleTripCompleted);
+    eventSource.addEventListener("list.replaced", handleListReplaced);
+    eventSource.addEventListener("item.duplicate_resolved", handleDuplicateResolved);
 
     return () => {
       eventSource.close();

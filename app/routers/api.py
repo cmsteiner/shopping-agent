@@ -171,11 +171,12 @@ def get_app_state(db: Session = Depends(get_db)) -> dict:
 async def stream_events(
     request: Request,
     last_event_id: int = Query(default=0),
+    last_event_id_header: str | None = Header(default=None, alias="Last-Event-ID"),
     stream_once: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     async def event_generator():
-        current_event_id = last_event_id
+        current_event_id = last_event_id or int(last_event_id_header or 0)
         while True:
             events = list_events_after(current_event_id, db)
             for event in events:

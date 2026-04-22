@@ -1506,4 +1506,173 @@ describe("App", () => {
     expect(await screen.findByText("Oat milk")).toBeInTheDocument();
     expect(await screen.findByText("Unsweetened")).toBeInTheDocument();
   });
+
+  it("applies live category and trip events from the realtime stream", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        list: { id: 1, status: "ACTIVE", version: 1, created_at: "2026-04-22T10:00:00Z" },
+        trip: null,
+        categories: [{ id: 10, name: "Dairy", sort_order: 10, version: 1 }],
+        items_by_category: [],
+        pending_prompts: { duplicate: null, conflict: null, trip_finish: null },
+        server_time: "2026-04-22T10:00:00Z"
+      })
+    });
+    const eventSources = [];
+    class MockEventSource {
+      constructor(url) {
+        this.url = url;
+        this.listeners = {};
+        eventSources.push(this);
+      }
+
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+
+      close() {}
+    }
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(<App token="dev-token" />);
+
+    await screen.findByText("Current List");
+    await waitFor(() => {
+      expect(eventSources).toHaveLength(1);
+    });
+
+    eventSources[0].listeners["category.updated"]({
+      data: JSON.stringify({
+        category: {
+          id: 10,
+          name: "Fresh Dairy",
+          sort_order: 10,
+          version: 2
+        }
+      }),
+      lastEventId: "6"
+    });
+    eventSources[0].listeners["trip.started"]({
+      data: JSON.stringify({
+        trip: {
+          id: 2,
+          status: "ACTIVE",
+          started_at: "2026-04-22T11:15:00Z",
+          completed_at: null,
+          version: 1
+        }
+      }),
+      lastEventId: "7"
+    });
+
+    expect(await screen.findByRole("option", { name: "Fresh Dairy" })).toBeInTheDocument();
+    expect(await screen.findByText("Shopping trip in progress")).toBeInTheDocument();
+  });
+
+  it("applies live list replacement and duplicate resolution events from the realtime stream", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        list: { id: 1, status: "ACTIVE", version: 1, created_at: "2026-04-22T10:00:00Z" },
+        trip: { id: 2, status: "ACTIVE", started_at: "2026-04-22T11:15:00Z", completed_at: null, version: 1 },
+        categories: [{ id: 10, name: "Bakery", sort_order: 10, version: 1 }],
+        items_by_category: [],
+        pending_prompts: { duplicate: null, conflict: null, trip_finish: null },
+        server_time: "2026-04-22T10:00:00Z"
+      })
+    });
+    const eventSources = [];
+    class MockEventSource {
+      constructor(url) {
+        this.url = url;
+        this.listeners = {};
+        eventSources.push(this);
+      }
+
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+
+      close() {}
+    }
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("EventSource", MockEventSource);
+
+    render(<App token="dev-token" />);
+
+    await screen.findByText("Current List");
+    await waitFor(() => {
+      expect(eventSources).toHaveLength(1);
+    });
+
+    eventSources[0].listeners["list.replaced"]({
+      data: JSON.stringify({
+        new_active_list: {
+          id: 3,
+          status: "ACTIVE",
+          version: 1,
+          created_at: "2026-04-22T12:00:00Z"
+        },
+        carried_over_items: [
+          {
+            id: 201,
+            name: "Bread",
+            quantity: "1",
+            unit: null,
+            notes: "",
+            category_id: 10,
+            category_name: "Bakery",
+            status: "ACTIVE",
+            is_purchased: false,
+            new_during_trip: false,
+            version: 1,
+            created_at: "2026-04-22T12:00:00Z",
+            updated_at: "2026-04-22T12:00:00Z"
+          }
+        ]
+      }),
+      lastEventId: "8"
+    });
+    eventSources[0].listeners["trip.completed"]({
+      data: JSON.stringify({
+        trip: {
+          id: 2,
+          status: "COMPLETED",
+          started_at: "2026-04-22T11:15:00Z",
+          completed_at: "2026-04-22T12:00:00Z",
+          version: 2
+        }
+      }),
+      lastEventId: "9"
+    });
+    eventSources[0].listeners["item.duplicate_resolved"]({
+      data: JSON.stringify({
+        decision: "merge",
+        resolved_item: {
+          id: 201,
+          name: "Bread",
+          quantity: "2.000",
+          unit: null,
+          notes: "",
+          category_id: 10,
+          category_name: "Bakery",
+          status: "ACTIVE",
+          is_purchased: false,
+          new_during_trip: false,
+          version: 2,
+          created_at: "2026-04-22T12:00:00Z",
+          updated_at: "2026-04-22T12:01:00Z"
+        }
+      }),
+      lastEventId: "10"
+    });
+
+    expect(await screen.findByText("Bread")).toBeInTheDocument();
+    expect(await screen.findByText("2.000")).toBeInTheDocument();
+    expect(screen.queryByText("Shopping trip in progress")).not.toBeInTheDocument();
+  });
 });

@@ -59,7 +59,7 @@ Deployment outcome:
 
 ## Task 4: Finish live sync for the shared app
 
-Status: `[~]`
+Status: `[x]`
 
 Goal:
 - Make the web app feel fully shared and stay consistent across clients.
@@ -75,7 +75,7 @@ Deployment outcome:
 
 ## Task 5: Add deployment and production hardening for v1
 
-Status: `[ ]`
+Status: `[~]`
 
 Goal:
 - Close the remaining gaps between “feature-complete enough” and “safe to deploy.”
@@ -84,7 +84,6 @@ Scope:
 - Add or update docs for build/deploy steps
 - Verify frontend build integration
 - Add an end-to-end smoke test path for deployed app boot and core API use
-- Update architecture/dataflow/testing docs where the web channel changed the system
 - Run final verification for backend and frontend suites
 
 Deployment outcome:

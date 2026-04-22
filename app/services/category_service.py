@@ -12,6 +12,15 @@ def _normalize_name(name: str) -> str:
     return name.strip().lower()
 
 
+def _serialize_category(category: Category) -> dict:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "sort_order": category.sort_order,
+        "version": category.version,
+    }
+
+
 def create_category(name: str, db: Session) -> Category:
     """Create a category unless one with the same normalized name already exists."""
     normalized_name = _normalize_name(name)
@@ -36,7 +45,7 @@ def create_category(name: str, db: Session) -> Category:
         event_type="category.created",
         entity_type="category",
         entity_id=category.id,
-        payload={"id": category.id, "name": category.name},
+        payload={"category": _serialize_category(category)},
         db=db,
     )
     db.commit()
@@ -66,7 +75,7 @@ def rename_category(category_id: int, new_name: str, db: Session) -> Category:
         event_type="category.updated",
         entity_type="category",
         entity_id=category.id,
-        payload={"id": category.id, "name": category.name},
+        payload={"category": _serialize_category(category)},
         db=db,
     )
     db.commit()
@@ -89,7 +98,7 @@ def delete_category(category_id: int, db: Session) -> None:
         event_type="category.deleted",
         entity_type="category",
         entity_id=category.id,
-        payload={"id": category.id, "name": category.name},
+        payload={"category": _serialize_category(category)},
         db=db,
     )
     db.delete(category)
