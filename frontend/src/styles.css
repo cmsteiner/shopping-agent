@@ -187,6 +187,18 @@ body {
   flex-wrap: wrap;
 }
 
+.category-inline-editor {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.category-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .empty-state,
 .error-panel {
   padding: 24px 18px;
@@ -287,4 +299,9 @@ body {
   background: transparent;
   color: var(--muted);
   padding: 4px 10px;
+}
+
+.ghost-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

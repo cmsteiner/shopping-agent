@@ -14,7 +14,12 @@ from app.models.shopping_list import ListStatus
 from app.models.shopping_trip import TripStatus
 from app.services import category_service, trip_service
 from app.services import item_service
-from app.services.conflict_service import build_item_conflict, resolve_item_conflict
+from app.services.conflict_service import (
+    build_category_conflict,
+    build_item_conflict,
+    resolve_category_conflict,
+    resolve_item_conflict,
+)
 from app.services.duplicate_service import check_duplicates
 from app.services.duplicate_resolution_service import resolve_duplicate
 from app.services.realtime_service import list_events_after
@@ -289,6 +294,20 @@ def create_category(payload: dict = Body(...), db: Session = Depends(get_db)) ->
 
 @router.patch("/categories/{category_id}", dependencies=[Depends(_require_app_token)])
 def rename_category(category_id: int, payload: dict = Body(...), db: Session = Depends(get_db)) -> dict:
+    existing = db.query(Category).filter(Category.id == category_id).first()
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    if payload.get("base_version") != existing.version:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": {
+                    "code": "version_conflict",
+                    "message": "This category was updated before your changes were saved.",
+                },
+                "conflict": build_category_conflict(existing, {key: value for key, value in payload.items() if key != "base_version"}),
+            },
+        )
     category = category_service.rename_category(category_id, payload["name"], db)
     updated_item_count = db.query(Item).filter(Item.category_id == category.id).count()
     return {
@@ -382,19 +401,38 @@ def resolve_duplicate_endpoint(
 
 @router.post("/conflicts/resolve", dependencies=[Depends(_require_app_token)])
 def resolve_conflict(payload: dict = Body(...), db: Session = Depends(get_db)) -> dict:
-    if payload["entity_type"] != "item":
-        raise HTTPException(status_code=422, detail="Unsupported entity type")
+    if payload["entity_type"] == "item":
+        item = resolve_item_conflict(
+            item_id=payload["entity_id"],
+            decision=payload["decision"],
+            server_version=payload["server_version"],
+            client_payload=payload.get("client_payload", {}),
+            db=db,
+        )
+        return {
+            "entity_type": "item",
+            "entity_id": item.id,
+            "decision": payload["decision"],
+            "item": _serialize_item(item),
+        }
+    if payload["entity_type"] == "category":
+        category = resolve_category_conflict(
+            category_id=payload["entity_id"],
+            decision=payload["decision"],
+            server_version=payload["server_version"],
+            client_payload=payload.get("client_payload", {}),
+            db=db,
+        )
+        return {
+            "entity_type": "category",
+            "entity_id": category.id,
+            "decision": payload["decision"],
+            "category": {
+                "id": category.id,
+                "name": category.name,
+                "sort_order": category.sort_order,
+                "version": category.version,
+            },
+        }
 
-    item = resolve_item_conflict(
-        item_id=payload["entity_id"],
-        decision=payload["decision"],
-        server_version=payload["server_version"],
-        client_payload=payload.get("client_payload", {}),
-        db=db,
-    )
-    return {
-        "entity_type": "item",
-        "entity_id": item.id,
-        "decision": payload["decision"],
-        "item": _serialize_item(item),
-    }
+    raise HTTPException(status_code=422, detail="Unsupported entity type")

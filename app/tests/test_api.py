@@ -291,6 +291,23 @@ class TestCategoryEndpoints:
         assert payload["category"]["name"] == "Fresh Produce"
         assert payload["updated_item_count"] == 0
 
+    def test_rename_category_returns_409_for_stale_version(self, api_client: TestClient, db: Session):
+        category = Category(name="Produce", normalized_name="produce", sort_order=10, version=2)
+        db.add(category)
+        db.commit()
+
+        response = api_client.patch(
+            f"/api/categories/{category.id}",
+            headers=_auth_headers(),
+            json={"base_version": 1, "name": "Fresh Produce"},
+        )
+
+        assert response.status_code == 409
+        payload = response.json()
+        assert payload["error"]["code"] == "version_conflict"
+        assert payload["conflict"]["entity_type"] == "category"
+        assert payload["conflict"]["entity_id"] == category.id
+
     def test_delete_category(self, api_client: TestClient, db: Session):
         category = Category(name="Produce", normalized_name="produce", sort_order=10)
         db.add(category)
@@ -489,6 +506,28 @@ class TestDuplicateEndpoints:
 
 
 class TestConflictEndpoints:
+    def test_overwrite_with_client_resolves_category_conflict(self, api_client: TestClient, db: Session):
+        category = Category(name="Produce", normalized_name="produce", sort_order=10, version=2)
+        db.add(category)
+        db.commit()
+
+        response = api_client.post(
+            "/api/conflicts/resolve",
+            headers=_auth_headers(),
+            json={
+                "entity_type": "category",
+                "entity_id": category.id,
+                "decision": "overwrite_with_client",
+                "server_version": 2,
+                "client_payload": {"name": "Fresh Produce"},
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["entity_type"] == "category"
+        assert payload["category"]["name"] == "Fresh Produce"
+
     def test_overwrite_with_client_resolves_item_conflict(self, api_client: TestClient, db: Session):
         sl = ShoppingList(status=ListStatus.ACTIVE)
         db.add(sl)

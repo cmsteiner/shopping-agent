@@ -43,7 +43,7 @@ Deployment outcome:
 
 ## Task 3: Finish category management for v1
 
-Status: `[~]`
+Status: `[x]`
 
 Goal:
 - Complete the remaining category workflows promised in the v1 spec.
@@ -59,7 +59,7 @@ Deployment outcome:
 
 ## Task 4: Finish live sync for the shared app
 
-Status: `[ ]`
+Status: `[~]`
 
 Goal:
 - Make the web app feel fully shared and stay consistent across clients.

@@ -1123,7 +1123,50 @@ describe("App", () => {
     });
   });
 
-  it("shows a message when deleting a non-empty category is blocked", async () => {
+  it("disables delete for a non-empty category and shows the move-items message", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        list: { id: 1, status: "ACTIVE", version: 1, created_at: "2026-04-22T10:00:00Z" },
+        trip: null,
+        categories: [{ id: 10, name: "Dairy", sort_order: 10, version: 1 }],
+        items_by_category: [
+          {
+            category: { id: 10, name: "Dairy", sort_order: 10, version: 1 },
+            items: [
+              {
+                id: 101,
+                name: "Milk",
+                quantity: "1",
+                unit: null,
+                notes: "",
+                category_id: 10,
+                category_name: "Dairy",
+                status: "ACTIVE",
+                is_purchased: false,
+                new_during_trip: false,
+                version: 1,
+                created_at: "2026-04-22T10:00:00Z",
+                updated_at: "2026-04-22T10:00:00Z"
+              }
+            ]
+          }
+        ],
+        pending_prompts: { duplicate: null, conflict: null, trip_finish: null },
+        server_time: "2026-04-22T10:00:00Z"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App token="dev-token" />);
+
+    const button = await screen.findByRole("button", { name: "Delete category Dairy" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText("Move all items out of this category before deleting it.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renames a category from the category manager and updates the selectors", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1132,39 +1175,92 @@ describe("App", () => {
           list: { id: 1, status: "ACTIVE", version: 1, created_at: "2026-04-22T10:00:00Z" },
           trip: null,
           categories: [{ id: 10, name: "Dairy", sort_order: 10, version: 1 }],
-          items_by_category: [
-            {
-              category: { id: 10, name: "Dairy", sort_order: 10, version: 1 },
-              items: [
-                {
-                  id: 101,
-                  name: "Milk",
-                  quantity: "1",
-                  unit: null,
-                  notes: "",
-                  category_id: 10,
-                  category_name: "Dairy",
-                  status: "ACTIVE",
-                  is_purchased: false,
-                  new_during_trip: false,
-                  version: 1,
-                  created_at: "2026-04-22T10:00:00Z",
-                  updated_at: "2026-04-22T10:00:00Z"
-                }
-              ]
-            }
-          ],
+          items_by_category: [],
+          pending_prompts: { duplicate: null, conflict: null, trip_finish: null },
+          server_time: "2026-04-22T10:00:00Z"
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          category: { id: 10, name: "Fresh Dairy", sort_order: 10, version: 2 },
+          updated_item_count: 0
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App token="dev-token" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename category Dairy" }));
+    fireEvent.change(screen.getByLabelText("Rename category Dairy"), { target: { value: "Fresh Dairy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save category Fresh Dairy" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Fresh Dairy" })).toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/categories/10", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-App-Token": "dev-token"
+      },
+      body: JSON.stringify({
+        base_version: 1,
+        name: "Fresh Dairy"
+      })
+    });
+  });
+
+  it("shows category conflict resolution after a stale rename and can overwrite with the user's changes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          list: { id: 1, status: "ACTIVE", version: 1, created_at: "2026-04-22T10:00:00Z" },
+          trip: null,
+          categories: [{ id: 10, name: "Dairy", sort_order: 10, version: 1 }],
+          items_by_category: [],
           pending_prompts: { duplicate: null, conflict: null, trip_finish: null },
           server_time: "2026-04-22T10:00:00Z"
         })
       })
       .mockResolvedValueOnce({
         ok: false,
-        status: 422,
+        status: 409,
         json: async () => ({
           error: {
-            code: "category_not_empty",
-            message: "Move all items out of this category before deleting it."
+            code: "version_conflict",
+            message: "This category was updated before your changes were saved."
+          },
+          conflict: {
+            entity_type: "category",
+            entity_id: 10,
+            server_version: 2,
+            client_payload: {
+              name: "Fresh Dairy"
+            },
+            server_payload: {
+              id: 10,
+              name: "Cold Storage",
+              sort_order: 10,
+              version: 2,
+              updated_at: "2026-04-22T10:05:00Z"
+            }
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          entity_type: "category",
+          entity_id: 10,
+          decision: "overwrite_with_client",
+          category: {
+            id: 10,
+            name: "Fresh Dairy",
+            sort_order: 10,
+            version: 3
           }
         })
       });
@@ -1172,10 +1268,32 @@ describe("App", () => {
 
     render(<App token="dev-token" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Delete category Dairy" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete Dairy" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rename category Dairy" }));
+    fireEvent.change(screen.getByLabelText("Rename category Dairy"), { target: { value: "Fresh Dairy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save category Fresh Dairy" }));
 
-    expect(await screen.findByText("Move all items out of this category before deleting it.")).toBeInTheDocument();
+    expect(await screen.findByText("Resolve category conflict")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep my category name" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "Fresh Dairy" })).toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/conflicts/resolve", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-App-Token": "dev-token"
+      },
+      body: JSON.stringify({
+        entity_type: "category",
+        entity_id: 10,
+        decision: "overwrite_with_client",
+        server_version: 2,
+        client_payload: {
+          name: "Fresh Dairy"
+        }
+      })
+    });
   });
 
   it("shows conflict resolution after a stale save and can overwrite with the user's changes", async () => {

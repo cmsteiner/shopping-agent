@@ -96,6 +96,28 @@ function buildGroupsFromItems(categories, items) {
   return orderedGroups.filter((group) => group.items.length > 0);
 }
 
+function updateCategoryInData(data, updatedCategory) {
+  return {
+    ...data,
+    categories: data.categories.map((category) =>
+      category.id === updatedCategory.id ? { ...category, ...updatedCategory } : category
+    ),
+    items_by_category: data.items_by_category.map((group) => {
+      if (group.category.id !== updatedCategory.id) {
+        return group;
+      }
+      return {
+        ...group,
+        category: { ...group.category, ...updatedCategory },
+        items: group.items.map((item) => ({
+          ...item,
+          category_name: updatedCategory.name
+        }))
+      };
+    })
+  };
+}
+
 export default function App({ token }) {
   const [state, setState] = useState(initialState);
   const [form, setForm] = useState({
@@ -107,6 +129,8 @@ export default function App({ token }) {
   const [categoryName, setCategoryName] = useState("");
   const [categoryDeleteTarget, setCategoryDeleteTarget] = useState(null);
   const [categoryMessage, setCategoryMessage] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [categoryEditName, setCategoryEditName] = useState("");
   const [editingItemId, setEditingItemId] = useState(null);
   const [editForm, setEditForm] = useState({
     name: "",
@@ -217,6 +241,11 @@ export default function App({ token }) {
   const { data } = state;
   const hasItems = data.items_by_category.length > 0;
 
+  function categoryItemCount(categoryId) {
+    const group = data.items_by_category.find((entry) => (entry.category.id ?? null) === (categoryId ?? null));
+    return group ? group.items.length : 0;
+  }
+
   async function handleCreateCategory(event) {
     event.preventDefault();
     setCategoryMessage("");
@@ -268,6 +297,41 @@ export default function App({ token }) {
       }
     }));
     setCategoryDeleteTarget(null);
+  }
+
+  function startEditingCategory(category) {
+    setEditingCategoryId(category.id);
+    setCategoryEditName(category.name);
+    setCategoryMessage("");
+  }
+
+  async function handleRenameCategory(category) {
+    const response = await fetch(`/api/categories/${category.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-App-Token": token
+      },
+      body: JSON.stringify({
+        base_version: category.version,
+        name: categoryEditName
+      })
+    });
+    if (response.status === 409) {
+      const payload = await response.json();
+      setConflictPrompt(payload.conflict);
+      return;
+    }
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    setState((current) => ({
+      ...current,
+      data: updateCategoryInData(current.data, payload.category)
+    }));
+    setEditingCategoryId(null);
+    setCategoryEditName("");
   }
 
   async function handleAddItem(event) {
@@ -445,15 +509,24 @@ export default function App({ token }) {
       return;
     }
     if (decision === "keep_server") {
-      setState((current) => ({
-        ...current,
-        data: {
-          ...current.data,
-          items_by_category: upsertItemIntoGroups(current.data.items_by_category, conflictPrompt.server_payload)
+      setState((current) => {
+        if (conflictPrompt.entity_type === "category") {
+          return {
+            ...current,
+            data: updateCategoryInData(current.data, conflictPrompt.server_payload)
+          };
         }
-      }));
+        return {
+          ...current,
+          data: {
+            ...current.data,
+            items_by_category: upsertItemIntoGroups(current.data.items_by_category, conflictPrompt.server_payload)
+          }
+        };
+      });
       setConflictPrompt(null);
       setEditingItemId(null);
+      setEditingCategoryId(null);
       return;
     }
 
@@ -475,15 +548,24 @@ export default function App({ token }) {
       return;
     }
     const payload = await response.json();
-    setState((current) => ({
-      ...current,
-      data: {
-        ...current.data,
-        items_by_category: upsertItemIntoGroups(current.data.items_by_category, payload.item)
+    setState((current) => {
+      if (payload.entity_type === "category") {
+        return {
+          ...current,
+          data: updateCategoryInData(current.data, payload.category)
+        };
       }
-    }));
+      return {
+        ...current,
+        data: {
+          ...current.data,
+          items_by_category: upsertItemIntoGroups(current.data.items_by_category, payload.item)
+        }
+      };
+    });
     setConflictPrompt(null);
     setEditingItemId(null);
+    setEditingCategoryId(null);
   }
 
   async function handleDeleteItem(item) {
@@ -663,7 +745,7 @@ export default function App({ token }) {
 
       {conflictPrompt ? (
         <section className="overlay-panel">
-          <h2>Resolve edit conflict</h2>
+          <h2>{conflictPrompt.entity_type === "category" ? "Resolve category conflict" : "Resolve edit conflict"}</h2>
           <p>Server version: {conflictPrompt.server_payload.name}</p>
           <p>My version: {conflictPrompt.client_payload.name}</p>
           <div className="overlay-actions">
@@ -672,10 +754,10 @@ export default function App({ token }) {
               onClick={() => handleConflictDecision("overwrite_with_client")}
               type="button"
             >
-              Keep my changes
+              {conflictPrompt.entity_type === "category" ? "Keep my category name" : "Keep my changes"}
             </button>
             <button className="ghost-button" onClick={() => handleConflictDecision("keep_server")} type="button">
-              Keep server version
+              {conflictPrompt.entity_type === "category" ? "Keep server category" : "Keep server version"}
             </button>
           </div>
         </section>
@@ -766,14 +848,39 @@ export default function App({ token }) {
         <ul className="category-chip-list">
           {data.categories.map((category) => (
             <li className="category-chip" key={category.id}>
-              <span>{category.name}</span>
+              {editingCategoryId === category.id ? (
+                <>
+                  <label className="category-inline-editor">
+                    <span>Rename category {category.name}</span>
+                    <input
+                      aria-label={`Rename category ${category.name}`}
+                      value={categoryEditName}
+                      onChange={(event) => setCategoryEditName(event.target.value)}
+                    />
+                  </label>
+                  <button className="primary-button" onClick={() => handleRenameCategory(category)} type="button">
+                    Save category {categoryEditName || category.name}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>{category.name}</span>
+                  <button className="ghost-button" onClick={() => startEditingCategory(category)} type="button">
+                    Rename category {category.name}
+                  </button>
+                </>
+              )}
               <button
                 className="ghost-button"
                 onClick={() => setCategoryDeleteTarget(category)}
                 type="button"
+                disabled={categoryItemCount(category.id) > 0}
               >
                 Delete category {category.name}
               </button>
+              {categoryItemCount(category.id) > 0 ? (
+                <span className="category-hint">Move all items out of this category before deleting it.</span>
+              ) : null}
             </li>
           ))}
         </ul>
