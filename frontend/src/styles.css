@@ -46,7 +46,9 @@ body {
 
 .trip-banner,
 .trip-review-panel,
+.overlay-panel,
 .add-panel,
+.category-manager,
 .empty-state,
 .error-panel,
 .category-card {
@@ -87,9 +89,54 @@ body {
   flex-wrap: wrap;
 }
 
+.overlay-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border-color: #c7b889;
+  background: linear-gradient(135deg, #fff6dd, #fffdf6);
+}
+
+.overlay-panel h2,
+.overlay-panel p {
+  margin: 0;
+}
+
+.overlay-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .add-panel {
   margin-bottom: 16px;
   padding: 16px;
+}
+
+.category-manager {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.category-manager-header h2,
+.category-manager-header p,
+.category-message {
+  margin: 0;
+}
+
+.category-form {
+  display: grid;
+  gap: 12px;
+}
+
+.category-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--muted);
 }
 
 .add-form {
@@ -105,6 +152,7 @@ body {
 }
 
 .add-form input,
+.add-form select,
 .item-edit-fields input,
 .item-edit-fields select {
   border: 1px solid var(--line);
@@ -118,8 +166,25 @@ body {
 .trip-banner span,
 .empty-state p,
 .error-panel p,
-.item-meta {
+.item-meta,
+.category-message {
   color: var(--muted);
+}
+
+.category-chip-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.category-chip,
+.category-confirmation {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .empty-state,

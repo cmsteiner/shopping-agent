@@ -41,6 +41,15 @@ def add_items(
         shopping_list = _get_or_create_active_list(db)
         list_id = shopping_list.id
 
+    active_trip = (
+        db.query(ShoppingTrip)
+        .filter(
+            ShoppingTrip.list_id == list_id,
+            ShoppingTrip.status == TripStatus.ACTIVE,
+        )
+        .first()
+    )
+
     created = []
     for item_data in items:
         # Use explicit brand if provided; otherwise look up stored preference.
@@ -51,19 +60,59 @@ def add_items(
         else:
             auto_brand = None
 
+        quantity = item_data.get("quantity")
+        if quantity in (None, ""):
+            quantity = 1
+
+        category_id = item_data.get("category_id")
+        if category_id in ("", None):
+            category_id = None
+
+        category_name = item_data.get("category")
+        if category_id is not None and not category_name:
+            category = db.query(Category).filter(Category.id == category_id).first()
+            if category is not None:
+                category_name = category.name
+
         item = Item(
             list_id=list_id,
             name=item_data["name"],
-            quantity=item_data.get("quantity"),
+            quantity=quantity,
             unit=item_data.get("unit"),
             brand_pref=explicit_brand or auto_brand,
-            category=item_data.get("category"),
-            category_id=item_data.get("category_id"),
+            category=category_name,
+            category_id=category_id,
             notes=item_data.get("notes"),
             status=ItemStatus.ACTIVE,
             added_by=user_id,
+            new_during_trip=active_trip is not None,
         )
         db.add(item)
+        db.flush()
+        record_event(
+            list_id=item.list_id,
+            event_type="item.created",
+            entity_type="item",
+            entity_id=item.id,
+            payload={
+                "item": {
+                    "id": item.id,
+                    "name": item.name,
+                    "quantity": str(item.quantity) if item.quantity is not None else None,
+                    "unit": item.unit,
+                    "notes": item.notes,
+                    "category_id": item.category_id,
+                    "category_name": item.category or "Uncategorized",
+                    "status": item.status.value,
+                    "is_purchased": item.is_purchased,
+                    "new_during_trip": item.new_during_trip,
+                    "version": item.version,
+                    "created_at": item.created_at.isoformat().replace("+00:00", "Z") if item.created_at else None,
+                    "updated_at": item.updated_at.isoformat().replace("+00:00", "Z") if item.updated_at else None,
+                }
+            },
+            db=db,
+        )
         created.append(item)
 
     db.commit()

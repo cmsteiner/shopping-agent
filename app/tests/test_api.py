@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import Category, Item, PendingConfirmation, ShoppingList, ShoppingTrip
+from app.models import Category, Item, ListEvent, PendingConfirmation, ShoppingList, ShoppingTrip
 from app.models.item import ItemStatus
 from app.models.shopping_list import ListStatus
 from app.models.shopping_trip import TripStatus
@@ -120,6 +120,24 @@ class TestItemEndpoints:
 
         item = db.query(Item).filter(Item.name == "Milk").first()
         assert item is not None
+
+    def test_create_item_defaults_quantity_and_marks_new_during_trip(self, api_client: TestClient, db: Session):
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        db.add(ShoppingTrip(list_id=sl.id, status=TripStatus.ACTIVE))
+        db.commit()
+
+        response = api_client.post(
+            "/api/items",
+            headers=_auth_headers(),
+            json={"name": "Milk"},
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["item"]["quantity"] == "1.000"
+        assert payload["item"]["new_during_trip"] is True
 
     def test_update_item(self, api_client: TestClient, db: Session):
         sl = ShoppingList(status=ListStatus.ACTIVE)
@@ -442,3 +460,44 @@ class TestConflictEndpoints:
         assert payload["item"]["name"] == "Green onions"
         assert payload["item"]["notes"] == "fresh"
         assert payload["item"]["version"] == 4
+
+
+class TestRealtimeStream:
+    def test_rejects_missing_stream_token(self, api_client: TestClient):
+        response = api_client.get("/api/events/stream")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Invalid app token"
+
+    def test_streams_events_after_last_event_id(self, api_client: TestClient, db: Session):
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        first = ListEvent(
+            list_id=sl.id,
+            event_type="item.created",
+            entity_type="item",
+            entity_id=1,
+            payload_json='{"id": 1, "name": "Milk"}',
+        )
+        second = ListEvent(
+            list_id=sl.id,
+            event_type="item.updated",
+            entity_type="item",
+            entity_id=1,
+            payload_json='{"id": 1, "name": "Oat milk"}',
+        )
+        db.add_all([first, second])
+        db.commit()
+
+        with api_client.stream(
+            "GET",
+            "/api/events/stream",
+            params={"token": settings.web_shared_token, "last_event_id": first.id, "stream_once": True},
+        ) as response:
+            body = next(response.iter_text())
+
+        assert response.status_code == 200
+        assert "event: item.updated" in body
+        assert f"id: {second.id}" in body
+        assert '"name": "Oat milk"' in body

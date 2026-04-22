@@ -205,6 +205,46 @@ class TestUpdateItem:
         assert event.entity_id == item.id
 
 
+class TestAddItems:
+    def test_defaults_quantity_and_marks_new_during_active_trip(self, db: Session):
+        from app.services.item_service import add_items
+
+        sl = _make_active_list(db)
+        db.add(ShoppingTrip(list_id=sl.id, status=TripStatus.ACTIVE))
+        db.commit()
+
+        [created] = add_items(
+            [{"name": "Milk"}],
+            list_id=sl.id,
+            user_id=1,
+            db=db,
+        )
+
+        assert float(created.quantity) == 1.0
+        assert created.new_during_trip is True
+
+    def test_records_item_created_event(self, db: Session):
+        from app.services.item_service import add_items
+        from app.models import ListEvent
+
+        sl = _make_active_list(db)
+
+        [created] = add_items(
+            [{"name": "Milk", "notes": "2%"}],
+            list_id=sl.id,
+            user_id=1,
+            db=db,
+        )
+
+        event = db.query(ListEvent).order_by(ListEvent.id.desc()).first()
+        assert event is not None
+        assert event.list_id == sl.id
+        assert event.event_type == "item.created"
+        assert event.entity_type == "item"
+        assert event.entity_id == created.id
+        assert '"name": "Milk"' in event.payload_json
+
+
 class TestDeleteItem:
     def test_deletes_item(self, db: Session):
         from app.services.item_service import delete_item

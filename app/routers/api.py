@@ -1,8 +1,10 @@
 """Web API router."""
+import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -14,12 +16,18 @@ from app.services import category_service, trip_service
 from app.services import item_service
 from app.services.conflict_service import build_item_conflict, resolve_item_conflict
 from app.services.duplicate_resolution_service import resolve_duplicate
+from app.services.realtime_service import list_events_after
 
 router = APIRouter(prefix="/api", tags=["api"])
 
 
 def _require_app_token(x_app_token: str = Header(default="")) -> None:
     if x_app_token != settings.web_shared_token:
+        raise HTTPException(status_code=403, detail="Invalid app token")
+
+
+def _require_stream_token(token: str = Query(default="")) -> None:
+    if token != settings.web_shared_token:
         raise HTTPException(status_code=403, detail="Invalid app token")
 
 
@@ -69,6 +77,10 @@ def _serialize_item(item: Item) -> dict:
 
 def _error_response(code: str, message: str) -> dict:
     return {"error": {"code": code, "message": message}}
+
+
+def _serialize_sse_event(event) -> str:
+    return f"id: {event.id}\nevent: {event.event_type}\ndata: {event.payload_json}\n\n"
 
 
 @router.get("/app-state", dependencies=[Depends(_require_app_token)])
@@ -147,6 +159,29 @@ def get_app_state(db: Session = Depends(get_db)) -> dict:
         },
         "server_time": datetime.utcnow().isoformat() + "Z",
     }
+
+
+@router.get("/events/stream", dependencies=[Depends(_require_stream_token)])
+async def stream_events(
+    request: Request,
+    last_event_id: int = Query(default=0),
+    stream_once: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    async def event_generator():
+        current_event_id = last_event_id
+        while True:
+            events = list_events_after(current_event_id, db)
+            for event in events:
+                current_event_id = event.id
+                yield _serialize_sse_event(event)
+            if stream_once:
+                break
+            if await request.is_disconnected():
+                break
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/items", dependencies=[Depends(_require_app_token)], status_code=201)
