@@ -642,8 +642,13 @@ export default function App({ token }) {
             {duplicatePrompt.pending_item.notes ? ` (${duplicatePrompt.pending_item.notes})` : ""}
           </p>
           <div className="overlay-actions">
+            {duplicatePrompt.options.includes("merge") ? (
+              <button className="primary-button" onClick={() => handleDuplicateDecision("merge")} type="button">
+                Merge items
+              </button>
+            ) : null}
             {duplicatePrompt.options.includes("keep_separate") ? (
-              <button className="primary-button" onClick={() => handleDuplicateDecision("keep_separate")} type="button">
+              <button className="ghost-button" onClick={() => handleDuplicateDecision("keep_separate")} type="button">
                 Keep separate
               </button>
             ) : null}

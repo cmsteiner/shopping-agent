@@ -922,6 +922,126 @@ describe("App", () => {
     });
   });
 
+  it("shows duplicate validation after add and can merge into the existing item", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          list: { id: 1, status: "ACTIVE", version: 1, created_at: "2026-04-22T10:00:00Z" },
+          trip: null,
+          categories: [{ id: 10, name: "Dairy", sort_order: 10, version: 1 }],
+          items_by_category: [
+            {
+              category: { id: 10, name: "Dairy", sort_order: 10, version: 1 },
+              items: [
+                {
+                  id: 88,
+                  name: "Milk",
+                  quantity: "1",
+                  unit: null,
+                  notes: "",
+                  category_id: 10,
+                  category_name: "Dairy",
+                  status: "ACTIVE",
+                  is_purchased: false,
+                  new_during_trip: false,
+                  version: 1,
+                  created_at: "2026-04-22T10:00:00Z",
+                  updated_at: "2026-04-22T10:00:00Z"
+                }
+              ]
+            }
+          ],
+          pending_prompts: { duplicate: null, conflict: null, trip_finish: null },
+          server_time: "2026-04-22T10:00:00Z"
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({
+          pending_duplicate: {
+            pending_confirmation_id: 17,
+            pending_item: {
+              id: 146,
+              name: "Milk",
+              quantity: "1",
+              unit: null,
+              notes: "2%",
+              category_id: 10,
+              category_name: "Dairy",
+              status: "PENDING",
+              is_purchased: false,
+              new_during_trip: false,
+              version: 1,
+              created_at: "2026-04-22T10:05:00Z",
+              updated_at: "2026-04-22T10:05:00Z"
+            },
+            existing_item: {
+              id: 88,
+              name: "Milk",
+              quantity: "1",
+              unit: null,
+              notes: "",
+              category_id: 10,
+              category_name: "Dairy",
+              status: "ACTIVE",
+              is_purchased: false,
+              new_during_trip: false,
+              version: 1,
+              created_at: "2026-04-22T10:00:00Z",
+              updated_at: "2026-04-22T10:00:00Z"
+            },
+            options: ["merge", "keep_separate", "cancel"]
+          }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          decision: "merge",
+          resolved_item: {
+            id: 88,
+            name: "Milk",
+            quantity: "2.000",
+            unit: null,
+            notes: "2%",
+            category_id: 10,
+            category_name: "Dairy",
+            status: "ACTIVE",
+            is_purchased: false,
+            new_during_trip: false,
+            version: 2,
+            created_at: "2026-04-22T10:00:00Z",
+            updated_at: "2026-04-22T10:06:00Z"
+          }
+        })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App token="dev-token" />);
+
+    fireEvent.change(await screen.findByLabelText("Item name"), { target: { value: "Milk" } });
+    fireEvent.change(screen.getByLabelText("Notes"), { target: { value: "2%" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add item" }));
+
+    expect(await screen.findByText("Possible duplicate item")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Merge items" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("2.000")).toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/duplicates/17/resolve", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-App-Token": "dev-token"
+      },
+      body: JSON.stringify({ decision: "merge" })
+    });
+  });
+
   it("creates a category from the category manager and adds it to the selectors", async () => {
     const fetchMock = vi
       .fn()

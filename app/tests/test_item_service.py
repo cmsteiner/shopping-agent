@@ -108,6 +108,27 @@ class TestHoldPending:
         # Must expire at least 23 hours from now (close to the intended 24h window)
         assert expires >= before + timedelta(hours=23)
 
+    def test_records_item_pending_duplicate_event(self, db: Session):
+        from app.models import ListEvent
+        from app.services.item_service import hold_pending
+
+        sl = _make_active_list(db)
+        existing = _add_item(db, sl.id, "milk")
+        db.commit()
+
+        pending = hold_pending(
+            item_dict={"name": "whole milk"},
+            existing_item_id=existing.id,
+            triggered_by=1,
+            db=db,
+        )
+
+        event = db.query(ListEvent).order_by(ListEvent.id.desc()).first()
+        assert event is not None
+        assert event.list_id == sl.id
+        assert event.event_type == "item.pending_duplicate"
+        assert event.entity_id == pending.id
+
 
 class TestOverrideCategory:
     def test_updates_item_category(self, db: Session):

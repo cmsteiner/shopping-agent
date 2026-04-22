@@ -170,6 +170,18 @@ def hold_pending(
         expires_at=expires_at,
     )
     db.add(confirmation)
+    record_event(
+        list_id=pending_item.list_id,
+        event_type="item.pending_duplicate",
+        entity_type="item",
+        entity_id=pending_item.id,
+        payload={
+            "id": pending_item.id,
+            "existing_item_id": existing_item_id,
+            "name": pending_item.name,
+        },
+        db=db,
+    )
     db.commit()
     db.refresh(pending_item)
     return pending_item

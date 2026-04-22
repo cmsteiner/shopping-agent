@@ -26,7 +26,7 @@ Deployment outcome:
 
 ## Task 2: Complete duplicate-item creation and merge resolution end to end
 
-Status: `[~]`
+Status: `[x]`
 
 Goal:
 - Make duplicate detection and resolution production-ready.
@@ -43,7 +43,7 @@ Deployment outcome:
 
 ## Task 3: Finish category management for v1
 
-Status: `[ ]`
+Status: `[~]`
 
 Goal:
 - Complete the remaining category workflows promised in the v1 spec.

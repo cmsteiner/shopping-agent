@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import Category, Item, ShoppingList, ShoppingTrip
+from app.models import Category, Item, ShoppingList, ShoppingTrip, User, PendingConfirmation
 from app.models.shopping_list import ListStatus
 from app.models.shopping_trip import TripStatus
 from app.services import category_service, trip_service
 from app.services import item_service
 from app.services.conflict_service import build_item_conflict, resolve_item_conflict
+from app.services.duplicate_service import check_duplicates
 from app.services.duplicate_resolution_service import resolve_duplicate
 from app.services.realtime_service import list_events_after
 
@@ -186,21 +187,44 @@ async def stream_events(
 
 @router.post("/items", dependencies=[Depends(_require_app_token)], status_code=201)
 def create_item(payload: dict = Body(...), db: Session = Depends(get_db)) -> dict:
-    created = item_service.add_items(
-        [
-            {
-                "name": payload["name"],
-                "quantity": payload.get("quantity"),
-                "unit": payload.get("unit"),
-                "notes": payload.get("notes"),
-                "category": payload.get("category"),
-                "category_id": payload.get("category_id"),
-            }
-        ],
-        list_id=None,
-        user_id=None,
-        db=db,
-    )
+    item_payload = {
+        "name": payload["name"],
+        "quantity": payload.get("quantity"),
+        "unit": payload.get("unit"),
+        "notes": payload.get("notes"),
+        "category": payload.get("category"),
+        "category_id": payload.get("category_id"),
+    }
+    duplicate_result = check_duplicates([item_payload], db)
+    if duplicate_result["possible_duplicates"]:
+        first_user = db.query(User).order_by(User.id).first()
+        new_item, existing_item, _score = duplicate_result["possible_duplicates"][0]
+        pending_item = item_service.hold_pending(
+            item_dict=new_item,
+            existing_item_id=existing_item.id,
+            triggered_by=first_user.id if first_user else 1,
+            db=db,
+        )
+        confirmation = (
+            db.query(PendingConfirmation)
+            .filter(PendingConfirmation.item_id == pending_item.id)
+            .order_by(PendingConfirmation.id.desc())
+            .first()
+        )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "pending_duplicate": {
+                    "pending_confirmation_id": confirmation.id,
+                    "pending_item": _serialize_item(pending_item),
+                    "existing_item": _serialize_item(existing_item),
+                    "options": ["merge", "keep_separate", "cancel"],
+                },
+                "client_request_id": payload.get("client_request_id"),
+            },
+        )
+
+    created = item_service.add_items([item_payload], list_id=None, user_id=None, db=db)
     item = created[0]
     return {
         "item": _serialize_item(item),

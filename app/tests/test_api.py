@@ -139,6 +139,30 @@ class TestItemEndpoints:
         assert payload["item"]["quantity"] == "1.000"
         assert payload["item"]["new_during_trip"] is True
 
+    def test_create_item_returns_pending_duplicate_payload(self, api_client: TestClient, db: Session):
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        existing = Item(list_id=sl.id, name="Milk", status=ItemStatus.ACTIVE, quantity=1)
+        db.add(existing)
+        db.commit()
+
+        response = api_client.post(
+            "/api/items",
+            headers=_auth_headers(),
+            json={"name": "Milk", "notes": "2%"},
+        )
+
+        assert response.status_code == 202
+        payload = response.json()
+        assert payload["pending_duplicate"]["existing_item"]["id"] == existing.id
+        assert payload["pending_duplicate"]["pending_item"]["status"] == "PENDING"
+        assert payload["pending_duplicate"]["options"] == ["merge", "keep_separate", "cancel"]
+
+        pending_item = db.query(Item).filter(Item.status == ItemStatus.PENDING).first()
+        assert pending_item is not None
+        assert db.query(PendingConfirmation).filter(PendingConfirmation.item_id == pending_item.id).count() == 1
+
     def test_update_item(self, api_client: TestClient, db: Session):
         sl = ShoppingList(status=ListStatus.ACTIVE)
         db.add(sl)
@@ -372,6 +396,37 @@ class TestTripEndpoints:
 
 
 class TestDuplicateEndpoints:
+    def test_merge_duplicate_combines_into_existing_item(self, api_client: TestClient, db: Session):
+        sl = ShoppingList(status=ListStatus.ACTIVE)
+        db.add(sl)
+        db.flush()
+        existing = Item(list_id=sl.id, name="Milk", status=ItemStatus.ACTIVE, quantity=1)
+        pending = Item(list_id=sl.id, name="Milk", status=ItemStatus.PENDING, quantity=1, notes="2%")
+        db.add_all([existing, pending])
+        db.flush()
+        confirmation = PendingConfirmation(
+            item_id=pending.id,
+            existing_item_id=existing.id,
+            triggered_by=1,
+            expires_at=pending.created_at,
+        )
+        db.add(confirmation)
+        db.commit()
+
+        response = api_client.post(
+            f"/api/duplicates/{confirmation.id}/resolve",
+            headers=_auth_headers(),
+            json={"decision": "merge"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["decision"] == "merge"
+        assert payload["resolved_item"]["id"] == existing.id
+        assert payload["resolved_item"]["quantity"] == "2.000"
+        assert db.query(Item).filter(Item.id == pending.id).first() is None
+        assert db.query(PendingConfirmation).filter(PendingConfirmation.id == confirmation.id).first() is None
+
     def test_keep_separate_promotes_pending_item(self, api_client: TestClient, db: Session):
         sl = ShoppingList(status=ListStatus.ACTIVE)
         db.add(sl)
