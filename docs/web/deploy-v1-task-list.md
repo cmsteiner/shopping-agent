@@ -75,7 +75,7 @@ Deployment outcome:
 
 ## Task 5: Add deployment and production hardening for v1
 
-Status: `[~]`
+Status: `[x]`
 
 Goal:
 - Close the remaining gaps between “feature-complete enough” and “safe to deploy.”
