@@ -6,9 +6,12 @@ __pycache__/
 *.db
 *.sqlite
 .venv/
+.venv311/
 venv/
 dist/
 build/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+bash.exe.stackdump
+logs.*.json

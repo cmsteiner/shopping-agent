@@ -31,9 +31,12 @@ class ShoppingList(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     # Relationships
     items: Mapped[list["Item"]] = relationship("Item", back_populates="shopping_list", cascade="all, delete-orphan")  # noqa: F821
+    trips: Mapped[list["ShoppingTrip"]] = relationship("ShoppingTrip", back_populates="shopping_list", cascade="all, delete-orphan")  # noqa: F821
+    events: Mapped[list["ListEvent"]] = relationship("ListEvent", back_populates="shopping_list", cascade="all, delete-orphan")  # noqa: F821
 
     def __repr__(self) -> str:
         return f"<ShoppingList id={self.id} status={self.status!r}>"

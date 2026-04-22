@@ -7,10 +7,22 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.models import Base, User, ShoppingList, Item, BrandPreference, Message, PendingConfirmation
+from app.models import (
+    Base,
+    BrandPreference,
+    Category,
+    Item,
+    ListEvent,
+    Message,
+    PendingConfirmation,
+    ShoppingList,
+    ShoppingTrip,
+    User,
+)
 from app.models.shopping_list import ListStatus
 from app.models.item import ItemStatus
 from app.models.message import MessageDirection
+from app.models.shopping_trip import TripStatus
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +101,10 @@ class TestShoppingList:
         assert sl.status == ListStatus.SENT
         assert sl.sent_at is not None
 
+    def test_list_defaults_version_to_one(self, db: Session):
+        sl = make_list(db)
+        assert sl.version == 1
+
 
 # ---------------------------------------------------------------------------
 # Item
@@ -139,6 +155,8 @@ class TestItem:
         assert item.unit is None
         assert item.brand_pref is None
         assert item.category is None
+        assert item.category_id is None
+        assert item.notes is None
         assert item.added_by is None
 
     def test_item_default_status_is_active(self, db: Session):
@@ -156,6 +174,76 @@ class TestItem:
         db.commit()
         db.refresh(item)
         assert item.created_at is not None
+
+    def test_item_web_fields_default_correctly(self, db: Session):
+        sl = make_list(db)
+        item = Item(list_id=sl.id, name="Lettuce")
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        assert item.is_purchased is False
+        assert item.purchased_at is None
+        assert item.new_during_trip is False
+        assert item.updated_at is not None
+        assert item.version == 1
+
+
+class TestCategory:
+    def test_create_category(self, db: Session):
+        category = Category(name="Produce", normalized_name="produce", sort_order=10)
+        db.add(category)
+        db.commit()
+        db.refresh(category)
+        assert category.id is not None
+        assert category.name == "Produce"
+        assert category.normalized_name == "produce"
+        assert category.sort_order == 10
+        assert category.version == 1
+
+    def test_category_normalized_name_unique(self, db: Session):
+        db.add(Category(name="Produce", normalized_name="produce", sort_order=10))
+        db.commit()
+        db.add(Category(name="PRODUCE", normalized_name="produce", sort_order=20))
+        with pytest.raises(Exception):
+            db.commit()
+
+
+class TestShoppingTrip:
+    def test_create_trip_defaults_active(self, db: Session):
+        sl = make_list(db)
+        trip = ShoppingTrip(list_id=sl.id)
+        db.add(trip)
+        db.commit()
+        db.refresh(trip)
+        assert trip.status == TripStatus.ACTIVE
+        assert trip.started_at is not None
+        assert trip.completed_at is None
+        assert trip.version == 1
+
+    def test_trip_status_enum_values(self, db: Session):
+        assert TripStatus.ACTIVE.value == "ACTIVE"
+        assert TripStatus.COMPLETED.value == "COMPLETED"
+
+
+class TestListEvent:
+    def test_create_list_event(self, db: Session):
+        sl = make_list(db)
+        event = ListEvent(
+            list_id=sl.id,
+            event_type="item.created",
+            entity_type="item",
+            entity_id=1,
+            payload_json='{"id": 1}',
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+        assert event.id is not None
+        assert event.list_id == sl.id
+        assert event.event_type == "item.created"
+        assert event.entity_type == "item"
+        assert event.payload_json == '{"id": 1}'
+        assert event.created_at is not None
 
 
 # ---------------------------------------------------------------------------

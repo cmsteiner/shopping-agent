@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -23,6 +23,8 @@ class Item(Base):
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     brand_pref: Mapped[str | None] = mapped_column(String(200), nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    category_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("categories.id"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ItemStatus] = mapped_column(
         Enum(ItemStatus, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
@@ -30,15 +32,25 @@ class Item(Base):
         server_default=ItemStatus.ACTIVE.value,
     )
     added_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    is_purchased: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    new_during_trip: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     # Relationships
     shopping_list: Mapped["ShoppingList"] = relationship("ShoppingList", back_populates="items")  # noqa: F821
     user: Mapped["User | None"] = relationship("User", foreign_keys=[added_by], back_populates="items")  # noqa: F821
+    category_ref: Mapped["Category | None"] = relationship("Category", back_populates="items")  # noqa: F821
     pending_confirmations: Mapped[list["PendingConfirmation"]] = relationship(  # noqa: F821
         "PendingConfirmation",
         foreign_keys="PendingConfirmation.item_id",
