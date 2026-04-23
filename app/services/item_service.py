@@ -226,7 +226,10 @@ def update_item(item_id: int, updates: dict, db: Session) -> Item:
     editable_fields = {"name", "quantity", "unit", "notes"}
     for field in editable_fields:
         if field in updates:
-            setattr(item, field, updates[field])
+            value = updates[field]
+            if field in ("quantity", "unit") and value == "":
+                value = None
+            setattr(item, field, value)
 
     if "category_id" in updates:
         category_id = updates["category_id"]

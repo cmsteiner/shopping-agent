@@ -548,11 +548,10 @@ export default function App({ token }) {
   async function handleSaveItem(item) {
     const clientPayload = {
       name: editForm.name,
-      quantity: editForm.quantity,
-      notes: editForm.notes,
+      quantity: editForm.quantity === "" ? null : editForm.quantity,
+      notes: editForm.notes === "" ? null : editForm.notes,
       category_id: editForm.category_id === "" ? null : Number(editForm.category_id)
     };
-    const categoryId = editForm.category_id === "" ? null : Number(editForm.category_id);
     const response = await fetch(`/api/items/${item.id}`, {
       method: "PATCH",
       headers: {
