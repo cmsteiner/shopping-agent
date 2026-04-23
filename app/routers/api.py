@@ -140,6 +140,9 @@ def get_app_state(db: Session = Depends(get_db)) -> dict:
             }
         )
 
+    latest_event = db.query(ListEvent).order_by(ListEvent.id.desc()).first()
+    last_event_id = latest_event.id if latest_event else 0
+
     return {
         "list": {
             "id": active_list.id,
@@ -164,7 +167,7 @@ def get_app_state(db: Session = Depends(get_db)) -> dict:
             "trip_finish": None,
         },
         "server_time": datetime.utcnow().isoformat() + "Z",
-        "last_event_id": (db.query(ListEvent.id).order_by(ListEvent.id.desc()).scalar() or 0),
+        "last_event_id": last_event_id,
     }
 
 
