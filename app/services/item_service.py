@@ -249,7 +249,23 @@ def update_item(item_id: int, updates: dict, db: Session) -> Item:
         event_type="item.updated",
         entity_type="item",
         entity_id=item.id,
-        payload={"id": item.id},
+        payload={
+            "item": {
+                "id": item.id,
+                "name": item.name,
+                "quantity": str(item.quantity) if item.quantity is not None else None,
+                "unit": item.unit,
+                "notes": item.notes,
+                "category_id": item.category_id,
+                "category_name": item.category or "Uncategorized",
+                "status": item.status.value,
+                "is_purchased": item.is_purchased,
+                "new_during_trip": item.new_during_trip,
+                "version": item.version,
+                "created_at": item.created_at.isoformat().replace("+00:00", "Z") if item.created_at else None,
+                "updated_at": item.updated_at.isoformat().replace("+00:00", "Z") if item.updated_at else None,
+            }
+        },
         db=db,
     )
     db.commit()
@@ -304,7 +320,23 @@ def toggle_purchased(item_id: int, is_purchased: bool, db: Session) -> Item:
         event_type="item.updated",
         entity_type="item",
         entity_id=item.id,
-        payload={"id": item.id, "is_purchased": item.is_purchased},
+        payload={
+            "item": {
+                "id": item.id,
+                "name": item.name,
+                "quantity": str(item.quantity) if item.quantity is not None else None,
+                "unit": item.unit,
+                "notes": item.notes,
+                "category_id": item.category_id,
+                "category_name": item.category or "Uncategorized",
+                "status": item.status.value,
+                "is_purchased": item.is_purchased,
+                "new_during_trip": item.new_during_trip,
+                "version": item.version,
+                "created_at": item.created_at.isoformat().replace("+00:00", "Z") if item.created_at else None,
+                "updated_at": item.updated_at.isoformat().replace("+00:00", "Z") if item.updated_at else None,
+            }
+        },
         db=db,
     )
 
