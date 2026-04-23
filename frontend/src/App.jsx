@@ -174,6 +174,7 @@ export default function App({ token }) {
         }
         const data = await response.json();
         if (!cancelled) {
+          lastEventIdRef.current = data.last_event_id ?? 0;
           setState({ status: "ready", data });
         }
       } catch (error) {
@@ -201,6 +202,7 @@ export default function App({ token }) {
     const handleItemUpdated = (event) => {
       lastEventIdRef.current = Number(event.lastEventId || lastEventIdRef.current);
       const payload = JSON.parse(event.data);
+      if (!payload.item) return;
       setState((current) => ({
         ...current,
         data: {

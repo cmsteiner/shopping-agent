@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import Category, Item, ShoppingList, ShoppingTrip, User, PendingConfirmation
+from app.models import Category, Item, ListEvent, ShoppingList, ShoppingTrip, User, PendingConfirmation
 from app.models.shopping_list import ListStatus
 from app.models.shopping_trip import TripStatus
 from app.services import category_service, trip_service
@@ -164,6 +164,7 @@ def get_app_state(db: Session = Depends(get_db)) -> dict:
             "trip_finish": None,
         },
         "server_time": datetime.utcnow().isoformat() + "Z",
+        "last_event_id": (db.query(ListEvent.id).order_by(ListEvent.id.desc()).scalar() or 0),
     }
 
 
